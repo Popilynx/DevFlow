@@ -50,6 +50,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
+      // Primeiro, verificar se o e-mail está confirmado
+      const { data: confirmationData, error: confirmationError } = await supabase
+        .from("email_confirmations")
+        .select("confirmed")
+        .eq("email", email)
+        .single();
+
+      // Se não encontrou confirmação, verificar se é um usuário antigo (sem confirmação)
+      if (confirmationError && confirmationError.code === 'PGRST116') {
+        // Usuário não encontrado na tabela de confirmação - pode ser um usuário antigo
+        // Permitir login para usuários que já existiam antes da implementação da confirmação
+        console.log("Usuário não encontrado na tabela de confirmação - permitindo login");
+      } else if (confirmationError || !confirmationData || !confirmationData.confirmed) {
+        // Usuário encontrado mas não confirmado
+        throw new Error("Confirme seu e-mail antes de acessar a plataforma. Verifique sua caixa de entrada.");
+      }
+
+      // Se está confirmado ou é usuário antigo, prosseguir com o login
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -125,11 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       const result = await res.json()
       if (result.success) {
-        // Buscar sessão do usuário autenticado
-        const { data: sessionData } = await supabase.auth.getSession()
-        if (sessionData?.session?.user) {
-          setUser(sessionData.session.user)
-        }
+        // Token confirmado com sucesso - usuário pode fazer login agora
         return true
       } else {
         throw new Error(result.error || "Token inválido ou expirado")

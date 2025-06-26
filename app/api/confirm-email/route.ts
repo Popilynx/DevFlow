@@ -29,8 +29,5 @@ export async function POST(req: NextRequest) {
     .update({ confirmed: true })
     .eq("id", data.id);
 
-  // Ativar usuário (remover restrição, ex: setar um campo 'active' no profile, ou liberar acesso)
-  // Aqui você pode atualizar o profile ou outro campo para liberar o acesso
-
   return NextResponse.json({ success: true });
 } 

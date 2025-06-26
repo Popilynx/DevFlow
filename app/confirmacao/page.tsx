@@ -24,20 +24,10 @@ export default function ConfirmacaoPage() {
   // Tentar confirmar automaticamente se houver token na URL
   useEffect(() => {
     const tokenFromUrl = searchParams.get("token")
-    const accessToken = searchParams.get("access_token")
-    const refreshToken = searchParams.get("refresh_token")
-
-    if (accessToken && refreshToken) {
-      // Token já foi processado pelo Supabase, redirecionar para dashboard
-      setIsConfirmed(true)
-      setTimeout(() => {
-        router.push("/dashboard")
-      }, 2000)
-    } else if (tokenFromUrl) {
+    if (tokenFromUrl) {
       setToken(tokenFromUrl)
-      handleConfirmToken(tokenFromUrl)
     }
-  }, [searchParams, router])
+  }, [searchParams])
 
   const handleConfirmToken = async (tokenToConfirm: string) => {
     if (!tokenToConfirm.trim()) {
@@ -57,13 +47,9 @@ export default function ConfirmacaoPage() {
         setIsConfirmed(true)
         toast({
           title: "🎉 Email confirmado com sucesso!",
-          description: "Sua conta foi ativada. Redirecionando para o dashboard...",
+          description: "Sua conta foi ativada. Agora você pode fazer login.",
           duration: 5000,
         })
-        
-        setTimeout(() => {
-          router.push("/dashboard")
-        }, 2000)
       } else {
         toast({
           title: "Erro na confirmação",
@@ -98,11 +84,16 @@ export default function ConfirmacaoPage() {
             </div>
             <CardTitle className="text-2xl">Email Confirmado!</CardTitle>
             <CardDescription>
-              Sua conta foi ativada com sucesso. Redirecionando para o dashboard...
+              Sua conta foi ativada com sucesso. Agora você pode fazer login na plataforma.
             </CardDescription>
           </CardHeader>
-          <CardContent className="text-center">
-            <LoadingSpinner className="h-6 w-6 mx-auto" />
+          <CardContent className="text-center space-y-4">
+            <Button onClick={() => router.push("/")} className="w-full">
+              Ir para o Login
+            </Button>
+            <p className="text-sm text-gray-500">
+              Use seu email e senha para acessar sua conta
+            </p>
           </CardContent>
         </Card>
       </div>

@@ -31,8 +31,8 @@ export async function POST(req: NextRequest) {
   await resend.emails.send({
     from: "noreply@v0-devflow-full-stack-app.vercel.app",
     to: email,
-    subject: "Confirme seu cadastro no DevFlow",
-    html: `<p>Seu código de confirmação: <b>${token}</b></p><p>Ou clique <a href='https://v0-devflow-full-stack-app.vercel.app/confirmacao?token=${token}'>aqui para confirmar</a>.</p>`
+    subject: "Seu código de confirmação do DevFlow",
+    html: `<p>Olá!</p><p>Seu código de confirmação é:</p><h2 style='color:#2563eb;'>${token}</h2><p>Copie e cole este código na tela de confirmação do DevFlow para ativar sua conta.</p>`
   });
 
   return NextResponse.json({ success: true });

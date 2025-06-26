@@ -41,7 +41,20 @@ Cria funções e triggers essenciais:
 - Triggers para atualização automática de timestamps
 - Trigger para criação automática de perfil
 
-### 4. `004-production-verification.sql` - Verificação Final
+### 4. `005-email-confirmations.sql` - Confirmação de Email
+**Execute se necessário!**
+
+Cria a tabela para confirmação de e-mail customizada:
+- `email_confirmations` - Tokens de confirmação de e-mail
+- Índices para performance
+- Políticas RLS para segurança
+
+**Inclui:**
+- Tabela com campos: id, user_id, email, token, created_at, confirmed
+- Índices otimizados
+- Políticas de segurança
+
+### 5. `004-production-verification.sql` - Verificação Final
 **Execute por último!**
 
 Script de verificação que valida:
@@ -69,7 +82,10 @@ Script de verificação que valida:
    -- 3. Terceiro
    -- Cole e execute: 003-create-functions.sql
    
-   -- 4. Por último
+   -- 4. Quarto (se necessário)
+   -- Cole e execute: 005-email-confirmations.sql
+   
+   -- 5. Por último
    -- Cole e execute: 004-production-verification.sql
    ```
 
