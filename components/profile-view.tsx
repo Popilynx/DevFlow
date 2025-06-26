@@ -44,8 +44,6 @@ interface UserProfile {
   name: string
   email: string
   bio: string
-  state: string
-  city: string
   website: string
   github: string
   linkedin: string
@@ -175,8 +173,6 @@ export function ProfileView() {
           name: data.name || "",
           email: data.email || "",
           bio: data.bio || "Desenvolvedor apaixonado por tecnologia e inovação. Sempre em busca de novos desafios e aprendizados.",
-          state: "SP",
-          city: "São Paulo",
           website: data.website || "https://meusite.dev",
           github: data.github || "https://github.com/usuario",
           linkedin: data.linkedin || "https://linkedin.com/in/usuario",
@@ -192,8 +188,6 @@ export function ProfileView() {
           name: user.user_metadata?.name || user.email?.split("@")[0] || "Usuário",
           email: user.email || "",
           bio: "Desenvolvedor apaixonado por tecnologia e inovação. Sempre em busca de novos desafios e aprendizados.",
-          state: "SP",
-          city: "São Paulo",
           website: "https://meusite.dev",
           github: "https://github.com/usuario",
           linkedin: "https://linkedin.com/in/usuario",
@@ -298,20 +292,28 @@ export function ProfileView() {
 
     // Atualizar perfil no Supabase
     if (user) {
-      await supabase.from("profiles").update({
+      const { error } = await supabase.from("profiles").update({
         name: editedProfile?.name,
         email: editedProfile?.email,
         bio: editedProfile?.bio,
-        state: editedProfile?.state,
-        city: editedProfile?.city,
         website: editedProfile?.website,
         github: editedProfile?.github,
         linkedin: editedProfile?.linkedin,
         skills: editedProfile?.skills,
         experience: editedProfile?.experience,
         avatar_url: editedProfile?.avatar || null,
-        updated_at: new Date().toISOString(),
+        // Remover campos que não existem na tabela: state, city, updated_at
       }).eq("id", user.id)
+
+      if (error) {
+        console.error("Erro ao atualizar perfil:", error)
+        toast({
+          title: "Erro ao atualizar perfil",
+          description: error.message,
+          variant: "destructive",
+        })
+        return
+      }
 
       // Atualizar avatar no user_metadata do Supabase Auth
       if (editedProfile?.avatar) {
@@ -374,8 +376,8 @@ export function ProfileView() {
   ).slice(0, 8)
 
   const formatLocation = () => {
-    const state = BRAZILIAN_STATES.find((s) => s.value === profile?.state)
-    return profile?.city && state ? `${profile.city}, ${state.label}` : state?.label || profile?.state
+    // Remover referência a state e city que não existem na tabela
+    return "Localização não configurada"
   }
 
   return (
@@ -450,8 +452,8 @@ export function ProfileView() {
                         <Label htmlFor="name">Nome Completo</Label>
                         <Input
                           id="name"
-                          value={editedProfile?.name}
-                          onChange={(e) => setEditedProfile({ ...editedProfile, name: e.target.value })}
+                          value={editedProfile?.name || ""}
+                          onChange={(e) => setEditedProfile(editedProfile ? { ...editedProfile, name: e.target.value } : null)}
                           placeholder="Seu nome completo"
                         />
                       </div>
@@ -459,8 +461,8 @@ export function ProfileView() {
                         <Label htmlFor="email">Email</Label>
                         <Input
                           id="email"
-                          value={editedProfile?.email}
-                          onChange={(e) => setEditedProfile({ ...editedProfile, email: e.target.value })}
+                          value={editedProfile?.email || ""}
+                          onChange={(e) => setEditedProfile(editedProfile ? { ...editedProfile, email: e.target.value } : null)}
                           placeholder="seu@email.com"
                           type="email"
                         />
@@ -468,8 +470,8 @@ export function ProfileView() {
                       <div>
                         <Label htmlFor="experience">Experiência</Label>
                         <Select
-                          value={editedProfile?.experience}
-                          onValueChange={(value) => setEditedProfile({ ...editedProfile, experience: value })}
+                          value={editedProfile?.experience || ""}
+                          onValueChange={(value) => setEditedProfile(editedProfile ? { ...editedProfile, experience: value } : null)}
                         >
                           <SelectTrigger>
                             <SelectValue />
@@ -512,54 +514,14 @@ export function ProfileView() {
                 <Label>Biografia</Label>
                 {isEditing ? (
                   <Textarea
-                    value={editedProfile?.bio}
-                    onChange={(e) => setEditedProfile({ ...editedProfile, bio: e.target.value })}
+                    value={editedProfile?.bio || ""}
+                    onChange={(e) => setEditedProfile(editedProfile ? { ...editedProfile, bio: e.target.value } : null)}
                     placeholder="Conte um pouco sobre você, suas paixões e objetivos..."
                     rows={4}
                   />
                 ) : (
                   <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{profile?.bio}</p>
                 )}
-              </div>
-
-              {/* Localização */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Estado</Label>
-                  {isEditing ? (
-                    <Select
-                      value={editedProfile?.state}
-                      onValueChange={(value) => setEditedProfile({ ...editedProfile, state: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {BRAZILIAN_STATES.map((state) => (
-                          <SelectItem key={state.value} value={state.value}>
-                            {state.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <p className="text-gray-700 dark:text-gray-300">
-                      {BRAZILIAN_STATES.find((s) => s.value === profile?.state)?.label || profile?.state}
-                    </p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label>Cidade</Label>
-                  {isEditing ? (
-                    <Input
-                      value={editedProfile?.city}
-                      onChange={(e) => setEditedProfile({ ...editedProfile, city: e.target.value })}
-                      placeholder="Sua cidade"
-                    />
-                  ) : (
-                    <p className="text-gray-700 dark:text-gray-300">{profile?.city}</p>
-                  )}
-                </div>
               </div>
 
               {/* Links Sociais */}
@@ -571,8 +533,8 @@ export function ProfileView() {
                     <Globe className="h-5 w-5 text-gray-500" />
                     {isEditing ? (
                       <Input
-                        value={editedProfile?.website}
-                        onChange={(e) => setEditedProfile({ ...editedProfile, website: e.target.value })}
+                        value={editedProfile?.website || ""}
+                        onChange={(e) => setEditedProfile(editedProfile ? { ...editedProfile, website: e.target.value } : null)}
                         placeholder="https://seusite.com"
                         className="flex-1"
                       />
@@ -594,8 +556,8 @@ export function ProfileView() {
                     <Github className="h-5 w-5 text-gray-500" />
                     {isEditing ? (
                       <Input
-                        value={editedProfile?.github}
-                        onChange={(e) => setEditedProfile({ ...editedProfile, github: e.target.value })}
+                        value={editedProfile?.github || ""}
+                        onChange={(e) => setEditedProfile(editedProfile ? { ...editedProfile, github: e.target.value } : null)}
                         placeholder="https://github.com/usuario"
                         className="flex-1"
                       />
@@ -617,8 +579,8 @@ export function ProfileView() {
                     <Linkedin className="h-5 w-5 text-blue-600" />
                     {isEditing ? (
                       <Input
-                        value={editedProfile?.linkedin}
-                        onChange={(e) => setEditedProfile({ ...editedProfile, linkedin: e.target.value })}
+                        value={editedProfile?.linkedin || ""}
+                        onChange={(e) => setEditedProfile(editedProfile ? { ...editedProfile, linkedin: e.target.value } : null)}
                         placeholder="https://linkedin.com/in/usuario"
                         className="flex-1"
                       />
