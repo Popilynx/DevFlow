@@ -26,7 +26,10 @@ export function OverviewView() {
       const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).single()
 
       if (error && error.code !== "PGRST116") {
-        console.error("Erro ao buscar perfil:", error)
+        // Silenciar erro de perfil não encontrado, mas logar outros erros
+        if (process.env.NODE_ENV === 'development') {
+          console.warn("Erro ao buscar perfil:", error.message)
+        }
         return
       }
 
@@ -47,13 +50,17 @@ export function OverviewView() {
           .single()
 
         if (insertError) {
-          console.error("Erro ao criar perfil:", insertError)
+          if (process.env.NODE_ENV === 'development') {
+            console.warn("Erro ao criar perfil:", insertError.message)
+          }
         } else {
           setProfile(newProfile)
         }
       }
     } catch (error) {
-      console.error("Erro ao buscar perfil:", error)
+      if (process.env.NODE_ENV === 'development') {
+        console.warn("Erro inesperado ao buscar perfil:", error)
+      }
     }
   }, [user])
 
