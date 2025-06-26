@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { useAuth } from "@/components/auth-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { Code, CheckCircle, KeyRound } from "lucide-react"
+import { Code, CheckCircle, KeyRound, Mail } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
 
@@ -65,12 +65,30 @@ export function LandingPage() {
     const password = formData.get("password") as string
 
     try {
-      await register(name, email, password)
-      toast({
-        title: "🎉 Conta criada com sucesso!",
-        description: "Bem-vindo ao DevFlow! Você já está logado.",
-        duration: 5000,
-      })
+      const result = await register(name, email, password)
+      
+      if (result.success) {
+        if (result.needsConfirmation) {
+          // Usuário precisa confirmar email
+          toast({
+            title: "📧 Verifique seu email!",
+            description: "Enviamos um link de confirmação para seu email. Clique no link ou cole o token na página de confirmação.",
+            duration: 8000,
+          })
+          
+          // Redirecionar para página de confirmação
+          setTimeout(() => {
+            window.location.href = "/confirmacao"
+          }, 2000)
+        } else {
+          // Usuário já foi logado automaticamente
+          toast({
+            title: "🎉 Conta criada com sucesso!",
+            description: "Bem-vindo ao DevFlow! Você já está logado.",
+            duration: 5000,
+          })
+        }
+      }
     } catch (error: any) {
       toast({
         title: "Erro no cadastro",
@@ -268,19 +286,19 @@ export function LandingPage() {
                         ) : (
                           <>
                             <CheckCircle className="mr-2 h-4 w-4" />
-                            Criar conta e entrar
+                            Criar conta
                           </>
                         )}
                       </Button>
                     </form>
 
-                    <div className="text-center text-sm text-gray-600 dark:text-gray-400 bg-green-50 dark:bg-green-900/20 p-3 rounded-lg border border-green-200 dark:border-green-800">
+                    <div className="text-center text-sm text-gray-600 dark:text-gray-400 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
                       <div className="flex items-center justify-center space-x-2 mb-1">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                        <span className="font-medium text-green-800 dark:text-green-200">Login Automático</span>
+                        <Mail className="h-4 w-4 text-blue-600" />
+                        <span className="font-medium text-blue-800 dark:text-blue-200">Confirmação por Email</span>
                       </div>
-                      <p className="text-green-700 dark:text-green-300">
-                        Após criar sua conta, você será logado automaticamente!
+                      <p className="text-blue-700 dark:text-blue-300">
+                        Após criar sua conta, você receberá um email de confirmação para ativar sua conta.
                       </p>
                     </div>
                   </TabsContent>

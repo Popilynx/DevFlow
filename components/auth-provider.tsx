@@ -8,7 +8,8 @@ import type { User } from "@supabase/supabase-js"
 interface AuthContextType {
   user: User | null
   login: (email: string, password: string) => Promise<boolean>
-  register: (name: string, email: string, password: string) => Promise<boolean>
+  register: (name: string, email: string, password: string) => Promise<{ success: boolean; needsConfirmation: boolean }>
+  confirmEmail: (token: string) => Promise<boolean>
   logout: () => void
   loading: boolean
   demoMode: boolean
@@ -70,8 +71,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const register = async (name: string, email: string, password: string): Promise<boolean> => {
+  const register = async (name: string, email: string, password: string): Promise<{ success: boolean; needsConfirmation: boolean }> => {
     try {
+      // Determinar URL de redirecionamento baseada no ambiente
+      const baseUrl = typeof window !== 'undefined' 
+        ? window.location.origin 
+        : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -79,8 +85,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: {
             name,
           },
-          // Configurar para não precisar de confirmação de email em desenvolvimento
-          emailRedirectTo: undefined,
+          // Configurar redirecionamento para confirmação de email
+          emailRedirectTo: `${baseUrl}/confirmacao`,
         },
       })
 
@@ -92,36 +98,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(error.message)
       }
 
-      // Se o usuário foi criado e está logado automaticamente
+      // Se o usuário foi criado e está logado automaticamente (email confirmado)
       if (data.user && data.session) {
         setUser(data.user)
-        return true
+        return { success: true, needsConfirmation: false }
       }
 
-      // Se precisar de confirmação de email, tentar fazer login automaticamente
+      // Se o usuário foi criado mas precisa confirmar email
       if (data.user && !data.session) {
-        try {
-          const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-          })
-
-          if (loginError) {
-            // Se não conseguir fazer login automático, ainda é sucesso no registro
-            console.log("Usuário criado, mas precisa confirmar email")
-            return true
-          }
-
-          if (loginData.user) {
-            setUser(loginData.user)
-          }
-        } catch (loginError) {
-          console.log("Erro no login automático:", loginError)
-          // Ainda é sucesso no registro, mesmo que o login automático falhe
-        }
+        console.log("Usuário criado, aguardando confirmação de email")
+        return { success: true, needsConfirmation: true }
       }
 
-      return true
+      return { success: true, needsConfirmation: true }
     } catch (error) {
       console.error("Erro no registro:", error)
       throw error
@@ -132,6 +121,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut()
     setDemoMode(false)
     localStorage.removeItem("devflow_demo_mode")
+  }
+
+  const confirmEmail = async (token: string): Promise<boolean> => {
+    try {
+      // Verificar OTP para confirmação de email
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: token,
+        type: 'email'
+      })
+
+      if (error) {
+        console.error("Erro na confirmação de email:", error.message)
+        throw new Error(error.message)
+      }
+
+      if (data?.user) {
+        setUser(data.user)
+        return true
+      }
+
+      return false
+    } catch (error) {
+      console.error("Erro na confirmação de email:", error)
+      throw error
+    }
   }
 
   const enableDemoMode = () => {
@@ -150,6 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         login,
         register,
+        confirmEmail,
         logout,
         loading,
         demoMode,

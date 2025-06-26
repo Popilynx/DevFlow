@@ -1,3 +1,8 @@
+-- =====================================================
+-- DEVFLOW - SCRIPT PRINCIPAL DE CRIAÇÃO DE TABELAS
+-- Execute este script primeiro no Supabase SQL Editor
+-- =====================================================
+
 -- Create users table (extends Supabase auth.users)
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
@@ -11,6 +16,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   skills TEXT[],
   experience TEXT,
   avatar_url TEXT,
+  role TEXT CHECK (role IN ('admin', 'user')) DEFAULT 'user',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -90,6 +96,8 @@ CREATE TABLE IF NOT EXISTS public.user_settings (
 );
 
 -- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_profiles_role ON public.profiles(role);
+CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
 CREATE INDEX IF NOT EXISTS idx_projects_user_id ON public.projects(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON public.tasks(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON public.tasks(project_id);
@@ -98,3 +106,13 @@ CREATE INDEX IF NOT EXISTS idx_links_user_id ON public.links(user_id);
 CREATE INDEX IF NOT EXISTS idx_pomodoro_sessions_user_id ON public.pomodoro_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_pomodoro_sessions_date ON public.pomodoro_sessions(session_date);
 CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON public.user_settings(user_id);
+
+-- Add comments for documentation
+COMMENT ON TABLE public.profiles IS 'Perfis de usuário estendendo auth.users';
+COMMENT ON COLUMN public.profiles.role IS 'Role do usuário: admin ou user';
+COMMENT ON TABLE public.projects IS 'Projetos dos usuários';
+COMMENT ON TABLE public.tasks IS 'Tarefas dos usuários';
+COMMENT ON TABLE public.code_snippets IS 'Snippets de código dos usuários';
+COMMENT ON TABLE public.links IS 'Links favoritos dos usuários';
+COMMENT ON TABLE public.pomodoro_sessions IS 'Sessões do Pomodoro';
+COMMENT ON TABLE public.user_settings IS 'Configurações dos usuários';
