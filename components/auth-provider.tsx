@@ -74,10 +74,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (name: string, email: string, password: string): Promise<{ success: boolean; needsConfirmation: boolean }> => {
     try {
       // Determinar URL de redirecionamento baseada no ambiente
-      const baseUrl = typeof window !== 'undefined' 
-        ? window.location.origin 
-        : process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
-      
+      const baseUrl =
+        typeof window !== "undefined"
+          ? window.location.origin
+          : process.env.NEXT_PUBLIC_SITE_URL || "https://seusite.com" // Substitua pelo seu domínio real
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
