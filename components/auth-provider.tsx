@@ -73,21 +73,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = async (name: string, email: string, password: string): Promise<{ success: boolean; needsConfirmation: boolean }> => {
     try {
-      // Determinar URL de redirecionamento baseada no ambiente
-      const baseUrl =
-        typeof window !== "undefined"
-          ? window.location.origin
-          : process.env.NEXT_PUBLIC_SITE_URL || "https://seusite.com" // Substitua pelo seu domínio real
-
+      // Criar usuário no Supabase (sem confirmação automática)
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: {
-            name,
-          },
-          // Configurar redirecionamento para confirmação de email
-          emailRedirectTo: `${baseUrl}/confirmacao`,
+          data: { name },
+          // Não enviar emailRedirectTo, pois o envio será customizado
         },
       })
 
@@ -99,19 +91,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(error.message)
       }
 
-      // Se o usuário foi criado e está logado automaticamente (email confirmado)
-      if (data.user && data.session) {
-        setUser(data.user)
-        return { success: true, needsConfirmation: false }
-      }
-
-      // Se o usuário foi criado mas precisa confirmar email
-      if (data.user && !data.session) {
-        console.log("Usuário criado, aguardando confirmação de email")
+      // Se o usuário foi criado
+      if (data.user) {
+        // Chamar API customizada para enviar confirmação
+        await fetch("/api/send-confirmation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, user_id: data.user.id }),
+        })
         return { success: true, needsConfirmation: true }
       }
 
-      return { success: true, needsConfirmation: true }
+      return { success: false, needsConfirmation: true }
     } catch (error) {
       console.error("Erro no registro:", error)
       throw error
@@ -126,23 +117,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const confirmEmail = async (token: string): Promise<boolean> => {
     try {
-      // Verificar OTP para confirmação de email
-      const { data, error } = await supabase.auth.verifyOtp({
-        token_hash: token,
-        type: 'email'
+      // Chamar API customizada para validar o token
+      const res = await fetch("/api/confirm-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
       })
-
-      if (error) {
-        console.error("Erro na confirmação de email:", error.message)
-        throw new Error(error.message)
-      }
-
-      if (data?.user) {
-        setUser(data.user)
+      const result = await res.json()
+      if (result.success) {
+        // Buscar sessão do usuário autenticado
+        const { data: sessionData } = await supabase.auth.getSession()
+        if (sessionData?.session?.user) {
+          setUser(sessionData.session.user)
+        }
         return true
+      } else {
+        throw new Error(result.error || "Token inválido ou expirado")
       }
-
-      return false
     } catch (error) {
       console.error("Erro na confirmação de email:", error)
       throw error

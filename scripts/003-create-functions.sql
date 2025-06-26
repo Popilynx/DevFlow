@@ -133,3 +133,13 @@ COMMENT ON FUNCTION public.is_admin_user IS 'Verifica se o usuário atual é adm
 COMMENT ON FUNCTION public.update_user_role IS 'Atualiza role de usuário (apenas admins)';
 COMMENT ON FUNCTION public.get_current_user_role IS 'Obtém role do usuário atual';
 COMMENT ON FUNCTION public.handle_new_user IS 'Cria perfil e configurações para novos usuários';
+
+-- Tabela para confirmação de e-mail customizada
+CREATE TABLE IF NOT EXISTS public.email_confirmations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  token TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  confirmed BOOLEAN DEFAULT FALSE
+);
