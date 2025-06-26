@@ -4,6 +4,8 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useAuth } from "@/components/auth-provider"
+import { useLocalStorage } from "@/hooks/use-local-storage"
+import { useRoles } from "@/hooks/use-roles"
 import { ThemeToggle } from "@/components/theme-toggle"
 import type { ViewType } from "@/components/dashboard"
 import {
@@ -19,6 +21,8 @@ import {
   TestTube,
   User,
   Settings,
+  Shield,
+  Bug,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { APP_CONFIG } from "@/lib/constants"
@@ -28,19 +32,10 @@ interface SidebarProps {
   onViewChange: (view: ViewType) => void
 }
 
-const menuItems = [
-  { id: "overview", label: "Visão Geral", icon: Home },
-  { id: "projects", label: "Projetos", icon: FolderOpen },
-  { id: "tasks", label: "Tarefas", icon: CheckSquare },
-  { id: "pomodoro", label: "Pomodoro", icon: Timer },
-  { id: "snippets", label: "Code Snippets", icon: Code },
-  { id: "links", label: "Links Úteis", icon: BookOpen },
-  { id: "profile", label: "Perfil", icon: User },
-  { id: "settings", label: "Configurações", icon: Settings },
-] as const
-
 export function Sidebar({ currentView, onViewChange }: SidebarProps) {
   const { user, logout, demoMode, disableDemoMode } = useAuth()
+  const { isAdmin } = useRoles()
+  const [profile] = useLocalStorage("devflow_profile", { avatar: "" })
   const [isCollapsed, setIsCollapsed] = useState(false)
 
   const handleLogout = () => {
@@ -55,6 +50,27 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
     onViewChange(view)
     setIsCollapsed(true) // Fechar menu mobile
   }
+
+  // Menu items base
+  const baseMenuItems = [
+    { id: "overview", label: "Visão Geral", icon: Home },
+    { id: "projects", label: "Projetos", icon: FolderOpen },
+    { id: "tasks", label: "Tarefas", icon: CheckSquare },
+    { id: "pomodoro", label: "Pomodoro", icon: Timer },
+    { id: "snippets", label: "Code Snippets", icon: Code },
+    { id: "links", label: "Links Úteis", icon: BookOpen },
+    { id: "profile", label: "Perfil", icon: User },
+    { id: "settings", label: "Configurações", icon: Settings },
+  ]
+
+  // Adicionar item de admin se o usuário for administrador
+  const menuItems = isAdmin() 
+    ? [...baseMenuItems, { id: "admin", label: "Administração", icon: Shield }]
+    : baseMenuItems
+
+  const adminItems = [
+    { id: "debug", label: "Debug", icon: Bug },
+  ]
 
   return (
     <>
@@ -109,6 +125,33 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
                 <span>{item.label}</span>
               </Button>
             ))}
+            
+            {/* Admin items */}
+            {isAdmin() && (
+              <>
+                <div className="pt-4 border-t border-border">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Administração
+                  </h3>
+                  <div className="space-y-2">
+                    {adminItems.map((item) => (
+                      <Button
+                        key={item.id}
+                        variant={currentView === item.id ? "default" : "ghost"}
+                        className={cn(
+                          "w-full justify-start space-x-3 hover-lift",
+                          currentView === item.id && "gradient-primary text-primary-foreground",
+                        )}
+                        onClick={() => handleViewChange(item.id as ViewType)}
+                      >
+                        <item.icon className="h-5 w-5" />
+                        <span>{item.label}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </nav>
 
           {/* Footer */}
@@ -116,11 +159,11 @@ export function Sidebar({ currentView, onViewChange }: SidebarProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3 min-w-0 flex-1">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src={user?.avatar || "/placeholder.svg"} />
-                  <AvatarFallback>{user?.name?.charAt(0).toUpperCase() || "U"}</AvatarFallback>
+                  <AvatarImage src={user?.user_metadata?.avatar || profile?.avatar || "/placeholder.svg"} />
+                  <AvatarFallback>{(user?.user_metadata?.name || user?.email?.charAt(0) || "U").toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
+                  <p className="text-sm font-medium text-foreground truncate">{user?.user_metadata?.name || user?.email?.split("@")[0] || "Usuário"}</p>
                   <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
                 </div>
               </div>

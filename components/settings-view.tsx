@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { useTheme } from "next-themes"
 import { useLocalStorage } from "@/hooks/use-local-storage"
+import { useUserSettings } from "@/hooks/use-database"
 import { useToast } from "@/hooks/use-toast"
+import { LoadingSpinner } from "@/components/ui/loading-spinner"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Settings,
   Palette,
@@ -60,6 +63,8 @@ interface AppSettings {
 export function SettingsView() {
   const { theme, setTheme } = useTheme()
   const { toast } = useToast()
+  const { settings: dbSettings, updateSettings, loading: settingsLoading, error: settingsError } = useUserSettings()
+  const [saving, setSaving] = useState(false)
 
   const [notifications, setNotifications] = useLocalStorage<NotificationSettings>("devflow_notifications", {
     pomodoroComplete: true,
@@ -88,30 +93,88 @@ export function SettingsView() {
     compactMode: false,
   })
 
+  useEffect(() => {
+    if (dbSettings && !settingsLoading) {
+      if (dbSettings.notifications) {
+        setNotifications(dbSettings.notifications)
+      }
+      
+      if (dbSettings.pomodoro) {
+        setPomodoroSettings(dbSettings.pomodoro)
+      }
+      
+      if (dbSettings.app_preferences) {
+        setAppSettings(dbSettings.app_preferences)
+      }
+    }
+  }, [dbSettings, settingsLoading, setNotifications, setPomodoroSettings, setAppSettings])
+
   const [showDangerZone, setShowDangerZone] = useState(false)
 
-  const handleNotificationChange = (key: keyof NotificationSettings, value: boolean | number) => {
-    setNotifications({ ...notifications, [key]: value })
-    toast({
-      title: "Configuração atualizada",
-      description: "Suas preferências de notificação foram salvas.",
-    })
+  const handleNotificationChange = async (key: keyof NotificationSettings, value: boolean | number) => {
+    const newNotifications = { ...notifications, [key]: value }
+    setNotifications(newNotifications)
+    
+    try {
+      setSaving(true)
+      await updateSettings({ notifications: newNotifications })
+      toast({
+        title: "Configuração atualizada",
+        description: "Suas preferências de notificação foram salvas.",
+      })
+    } catch (error) {
+      toast({
+        title: "Erro ao salvar",
+        description: "Erro ao salvar no servidor, mas salvo localmente.",
+        variant: "destructive",
+      })
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handlePomodoroChange = (key: keyof PomodoroSettings, value: number | boolean) => {
-    setPomodoroSettings({ ...pomodoroSettings, [key]: value })
-    toast({
-      title: "Configuração do Pomodoro atualizada",
-      description: "Suas preferências foram salvas.",
-    })
+  const handlePomodoroChange = async (key: keyof PomodoroSettings, value: number | boolean) => {
+    const newPomodoroSettings = { ...pomodoroSettings, [key]: value }
+    setPomodoroSettings(newPomodoroSettings)
+    
+    try {
+      setSaving(true)
+      await updateSettings({ pomodoro: newPomodoroSettings })
+      toast({
+        title: "Configuração do Pomodoro atualizada",
+        description: "Suas preferências foram salvas.",
+      })
+    } catch (error) {
+      toast({
+        title: "Erro ao salvar",
+        description: "Erro ao salvar no servidor, mas salvo localmente.",
+        variant: "destructive",
+      })
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const handleAppSettingChange = (key: keyof AppSettings, value: string | boolean) => {
-    setAppSettings({ ...appSettings, [key]: value })
-    toast({
-      title: "Configuração do aplicativo atualizada",
-      description: "Suas preferências foram salvas.",
-    })
+  const handleAppSettingChange = async (key: keyof AppSettings, value: string | boolean) => {
+    const newAppSettings = { ...appSettings, [key]: value }
+    setAppSettings(newAppSettings)
+    
+    try {
+      setSaving(true)
+      await updateSettings({ app_preferences: newAppSettings })
+      toast({
+        title: "Configuração do aplicativo atualizada",
+        description: "Suas preferências foram salvas.",
+      })
+    } catch (error) {
+      toast({
+        title: "Erro ao salvar",
+        description: "Erro ao salvar no servidor, mas salvo localmente.",
+        variant: "destructive",
+      })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const exportData = () => {
@@ -228,325 +291,352 @@ export function SettingsView() {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Configurações</h1>
-        <p className="text-gray-600 dark:text-gray-400">Personalize sua experiência no DevFlow</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Configurações</h1>
+            <p className="text-gray-600 dark:text-gray-400">Personalize sua experiência no DevFlow</p>
+          </div>
+          {saving && (
+            <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
+              <LoadingSpinner size="sm" />
+              <span>Salvando...</span>
+            </div>
+          )}
+        </div>
+        {settingsError && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              Erro ao carregar configurações: {settingsError}
+            </AlertDescription>
+          </Alert>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Aparência */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Palette className="h-5 w-5" />
-              <span>Aparência</span>
-            </CardTitle>
-            <CardDescription>Personalize a aparência do aplicativo</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Tema</Label>
-              <Select value={theme} onValueChange={setTheme}>
-                <SelectTrigger>
-                  <SelectValue>
-                    <div className="flex items-center space-x-2">
-                      {getThemeIcon()}
-                      <span className="capitalize">
-                        {theme === "system" ? "Sistema" : theme === "light" ? "Claro" : "Escuro"}
-                      </span>
-                    </div>
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="light">
-                    <div className="flex items-center space-x-2">
-                      <Sun className="h-4 w-4" />
-                      <span>Claro</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="dark">
-                    <div className="flex items-center space-x-2">
-                      <Moon className="h-4 w-4" />
-                      <span>Escuro</span>
-                    </div>
-                  </SelectItem>
-                  <SelectItem value="system">
-                    <div className="flex items-center space-x-2">
-                      <Monitor className="h-4 w-4" />
-                      <span>Sistema</span>
-                    </div>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Modo Compacto</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Interface mais densa com menos espaçamento</p>
+      {settingsLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <LoadingSpinner size="lg" className="mx-auto mb-4" />
+            <p className="text-gray-600 dark:text-gray-400">Carregando configurações...</p>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Aparência */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Palette className="h-5 w-5" />
+                <span>Aparência</span>
+              </CardTitle>
+              <CardDescription>Personalize a aparência do aplicativo</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Tema</Label>
+                <Select value={theme} onValueChange={setTheme}>
+                  <SelectTrigger>
+                    <SelectValue>
+                      <div className="flex items-center space-x-2">
+                        {getThemeIcon()}
+                        <span className="capitalize">
+                          {theme === "system" ? "Sistema" : theme === "light" ? "Claro" : "Escuro"}
+                        </span>
+                      </div>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="light">
+                      <div className="flex items-center space-x-2">
+                        <Sun className="h-4 w-4" />
+                        <span>Claro</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="dark">
+                      <div className="flex items-center space-x-2">
+                        <Moon className="h-4 w-4" />
+                        <span>Escuro</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="system">
+                      <div className="flex items-center space-x-2">
+                        <Monitor className="h-4 w-4" />
+                        <span>Sistema</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <Switch
-                checked={appSettings.compactMode}
-                onCheckedChange={(checked) => handleAppSettingChange("compactMode", checked)}
-              />
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Notificações */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Bell className="h-5 w-5" />
-              <span>Notificações</span>
-            </CardTitle>
-            <CardDescription>Configure quando receber notificações</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Pomodoro Concluído</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Notificar quando uma sessão terminar</p>
-              </div>
-              <Switch
-                checked={notifications.pomodoroComplete}
-                onCheckedChange={(checked) => handleNotificationChange("pomodoroComplete", checked)}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Lembretes de Tarefas</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Lembrar de tarefas próximas do prazo</p>
-              </div>
-              <Switch
-                checked={notifications.taskReminders}
-                onCheckedChange={(checked) => handleNotificationChange("taskReminders", checked)}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Prazos de Projetos</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Notificar sobre prazos de projetos</p>
-              </div>
-              <Switch
-                checked={notifications.projectDeadlines}
-                onCheckedChange={(checked) => handleNotificationChange("projectDeadlines", checked)}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Resumo Diário</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Receber resumo das atividades do dia</p>
-              </div>
-              <Switch
-                checked={notifications.dailySummary}
-                onCheckedChange={(checked) => handleNotificationChange("dailySummary", checked)}
-              />
-            </div>
-
-            <Separator />
-
-            <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Sons</Label>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Reproduzir sons de notificação</p>
+                  <Label>Modo Compacto</Label>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Interface mais densa com menos espaçamento</p>
                 </div>
                 <Switch
-                  checked={notifications.soundEnabled}
-                  onCheckedChange={(checked) => handleNotificationChange("soundEnabled", checked)}
+                  checked={appSettings.compactMode}
+                  onCheckedChange={(checked) => handleAppSettingChange("compactMode", checked)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Notificações */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Bell className="h-5 w-5" />
+                <span>Notificações</span>
+              </CardTitle>
+              <CardDescription>Configure quando receber notificações</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Pomodoro Concluído</Label>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Notificar quando uma sessão terminar</p>
+                </div>
+                <Switch
+                  checked={notifications.pomodoroComplete}
+                  onCheckedChange={(checked) => handleNotificationChange("pomodoroComplete", checked)}
                 />
               </div>
 
-              {notifications.soundEnabled && (
-                <div className="space-y-2">
-                  <div className="flex items-center space-x-2">
-                    {notifications.volume > 0 ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                    <Label>Volume: {notifications.volume}%</Label>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Lembretes de Tarefas</Label>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Lembrar de tarefas próximas do prazo</p>
+                </div>
+                <Switch
+                  checked={notifications.taskReminders}
+                  onCheckedChange={(checked) => handleNotificationChange("taskReminders", checked)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Prazos de Projetos</Label>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Notificar sobre prazos de projetos</p>
+                </div>
+                <Switch
+                  checked={notifications.projectDeadlines}
+                  onCheckedChange={(checked) => handleNotificationChange("projectDeadlines", checked)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Resumo Diário</Label>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Receber resumo das atividades do dia</p>
+                </div>
+                <Switch
+                  checked={notifications.dailySummary}
+                  onCheckedChange={(checked) => handleNotificationChange("dailySummary", checked)}
+                />
+              </div>
+
+              <Separator />
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Sons</Label>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Reproduzir sons de notificação</p>
                   </div>
-                  <Input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={notifications.volume}
-                    onChange={(e) => handleNotificationChange("volume", Number.parseInt(e.target.value))}
-                    className="w-full"
+                  <Switch
+                    checked={notifications.soundEnabled}
+                    onCheckedChange={(checked) => handleNotificationChange("soundEnabled", checked)}
                   />
                 </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Configurações do Pomodoro */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Timer className="h-5 w-5" />
-              <span>Pomodoro</span>
-            </CardTitle>
-            <CardDescription>Configure os tempos e comportamentos do Pomodoro</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Trabalho (min)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={pomodoroSettings.workDuration}
-                  onChange={(e) => handlePomodoroChange("workDuration", Number.parseInt(e.target.value))}
+                {notifications.soundEnabled && (
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-2">
+                      {notifications.volume > 0 ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                      <Label>Volume: {notifications.volume}%</Label>
+                    </div>
+                    <Input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={notifications.volume}
+                      onChange={(e) => handleNotificationChange("volume", Number.parseInt(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Configurações do Pomodoro */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Timer className="h-5 w-5" />
+                <span>Pomodoro</span>
+              </CardTitle>
+              <CardDescription>Configure os tempos e comportamentos do Pomodoro</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Trabalho (min)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={pomodoroSettings.workDuration}
+                    onChange={(e) => handlePomodoroChange("workDuration", Number.parseInt(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Pausa Curta (min)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="30"
+                    value={pomodoroSettings.shortBreakDuration}
+                    onChange={(e) => handlePomodoroChange("shortBreakDuration", Number.parseInt(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Pausa Longa (min)</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={pomodoroSettings.longBreakDuration}
+                    onChange={(e) => handlePomodoroChange("longBreakDuration", Number.parseInt(e.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Sessões até pausa longa</Label>
+                  <Input
+                    type="number"
+                    min="2"
+                    max="10"
+                    value={pomodoroSettings.sessionsUntilLongBreak}
+                    onChange={(e) => handlePomodoroChange("sessionsUntilLongBreak", Number.parseInt(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Auto-iniciar Pausas</Label>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Iniciar pausas automaticamente</p>
+                </div>
+                <Switch
+                  checked={pomodoroSettings.autoStartBreaks}
+                  onCheckedChange={(checked) => handlePomodoroChange("autoStartBreaks", checked)}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Pausa Curta (min)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="30"
-                  value={pomodoroSettings.shortBreakDuration}
-                  onChange={(e) => handlePomodoroChange("shortBreakDuration", Number.parseInt(e.target.value))}
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Auto-iniciar Pomodoros</Label>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Iniciar sessões de trabalho automaticamente</p>
+                </div>
+                <Switch
+                  checked={pomodoroSettings.autoStartPomodoros}
+                  onCheckedChange={(checked) => handlePomodoroChange("autoStartPomodoros", checked)}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Configurações Gerais */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Settings className="h-5 w-5" />
+                <span>Geral</span>
+              </CardTitle>
+              <CardDescription>Configurações gerais do aplicativo</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Pausa Longa (min)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={pomodoroSettings.longBreakDuration}
-                  onChange={(e) => handlePomodoroChange("longBreakDuration", Number.parseInt(e.target.value))}
-                />
+                <Label>Idioma</Label>
+                <Select value={appSettings.language} onValueChange={(value) => handleAppSettingChange("language", value)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pt-BR">Português (Brasil)</SelectItem>
+                    <SelectItem value="en-US">English (US)</SelectItem>
+                    <SelectItem value="es-ES">Español</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Formato de Data</Label>
+                  <Select
+                    value={appSettings.dateFormat}
+                    onValueChange={(value) => handleAppSettingChange("dateFormat", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
+                      <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
+                      <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Formato de Hora</Label>
+                  <Select
+                    value={appSettings.timeFormat}
+                    onValueChange={(value) => handleAppSettingChange("timeFormat", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="24h">24 horas</SelectItem>
+                      <SelectItem value="12h">12 horas</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label>Sessões até pausa longa</Label>
-                <Input
-                  type="number"
-                  min="2"
-                  max="10"
-                  value={pomodoroSettings.sessionsUntilLongBreak}
-                  onChange={(e) => handlePomodoroChange("sessionsUntilLongBreak", Number.parseInt(e.target.value))}
-                />
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Auto-iniciar Pausas</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Iniciar pausas automaticamente</p>
-              </div>
-              <Switch
-                checked={pomodoroSettings.autoStartBreaks}
-                onCheckedChange={(checked) => handlePomodoroChange("autoStartBreaks", checked)}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Auto-iniciar Pomodoros</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Iniciar sessões de trabalho automaticamente</p>
-              </div>
-              <Switch
-                checked={pomodoroSettings.autoStartPomodoros}
-                onCheckedChange={(checked) => handlePomodoroChange("autoStartPomodoros", checked)}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Configurações Gerais */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Settings className="h-5 w-5" />
-              <span>Geral</span>
-            </CardTitle>
-            <CardDescription>Configurações gerais do aplicativo</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Idioma</Label>
-              <Select value={appSettings.language} onValueChange={(value) => handleAppSettingChange("language", value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pt-BR">Português (Brasil)</SelectItem>
-                  <SelectItem value="en-US">English (US)</SelectItem>
-                  <SelectItem value="es-ES">Español</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Formato de Data</Label>
+                <Label>Início da Semana</Label>
                 <Select
-                  value={appSettings.dateFormat}
-                  onValueChange={(value) => handleAppSettingChange("dateFormat", value)}
+                  value={appSettings.startOfWeek}
+                  onValueChange={(value) => handleAppSettingChange("startOfWeek", value)}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
-                    <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
-                    <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
+                    <SelectItem value="monday">Segunda-feira</SelectItem>
+                    <SelectItem value="sunday">Domingo</SelectItem>
+                    <SelectItem value="saturday">Sábado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Formato de Hora</Label>
-                <Select
-                  value={appSettings.timeFormat}
-                  onValueChange={(value) => handleAppSettingChange("timeFormat", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="24h">24 horas</SelectItem>
-                    <SelectItem value="12h">12 horas</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label>Início da Semana</Label>
-              <Select
-                value={appSettings.startOfWeek}
-                onValueChange={(value) => handleAppSettingChange("startOfWeek", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="monday">Segunda-feira</SelectItem>
-                  <SelectItem value="sunday">Domingo</SelectItem>
-                  <SelectItem value="saturday">Sábado</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Salvamento Automático</Label>
-                <p className="text-sm text-gray-600 dark:text-gray-400">Salvar alterações automaticamente</p>
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Salvamento Automático</Label>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Salvar alterações automaticamente</p>
+                </div>
+                <Switch
+                  checked={appSettings.autoSave}
+                  onCheckedChange={(checked) => handleAppSettingChange("autoSave", checked)}
+                />
               </div>
-              <Switch
-                checked={appSettings.autoSave}
-                onCheckedChange={(checked) => handleAppSettingChange("autoSave", checked)}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Backup e Restauração */}
       <Card>

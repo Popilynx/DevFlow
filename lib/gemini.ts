@@ -1,6 +1,7 @@
 "use client"
 
 import { PROGRAMMING_LANGUAGES } from "./constants"
+import { cacheUtils } from "./cache"
 
 const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY
 if (!GEMINI_API_KEY) {
@@ -20,6 +21,13 @@ export async function generateCodeSnippet(prompt: string): Promise<GeneratedSnip
 
   if (!sanitizedPrompt) {
     throw new Error("Prompt não pode estar vazio")
+  }
+
+  // Verificar cache primeiro
+  const cached = cacheUtils.ai.get(sanitizedPrompt) as GeneratedSnippet | null
+  if (cached) {
+    console.log("📦 Cache hit para IA:", sanitizedPrompt)
+    return cached
   }
 
   try {
@@ -51,6 +59,9 @@ export async function generateCodeSnippet(prompt: string): Promise<GeneratedSnip
     if (!PROGRAMMING_LANGUAGES.includes(data.language.toLowerCase())) {
       data.language = "javascript" // fallback
     }
+
+    // Salvar no cache
+    cacheUtils.ai.set(sanitizedPrompt, data)
 
     console.log("✅ Snippet gerado:", data.title)
     return data

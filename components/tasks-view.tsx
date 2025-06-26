@@ -20,38 +20,26 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useLocalStorage } from "@/hooks/use-local-storage"
+import { useTasks, useProjects } from "@/hooks/use-database"
 import { useToast } from "@/hooks/use-toast"
-import { Plus, CheckSquare, Edit, Trash2, Calendar } from "lucide-react"
-
-interface Task {
-  id: string
-  title: string
-  description: string
-  status: "pending" | "in-progress" | "completed"
-  priority: "low" | "medium" | "high"
-  projectId?: string
-  dueDate?: string
-  createdAt: string
-  updatedAt: string
-}
-
-interface Project {
-  id: string
-  name: string
-  status: string
-}
+import { Plus, CheckSquare, Edit, Trash2, Calendar, AlertTriangle } from "lucide-react"
+import type { Task, Project } from "@/lib/supabase"
+import { LoadingSpinner } from "@/components/ui/loading-spinner"
+import { RetryStatus } from "@/components/ui/retry-status"
 
 export function TasksView() {
-  const [tasks, setTasks] = useLocalStorage<Task[]>("devflow_tasks", [])
-  const [projects] = useLocalStorage<Project[]>("devflow_projects", [])
+  const { tasks, createTask, updateTask, deleteTask, loading, error, retryState } = useTasks()
+  const { projects } = useProjects()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [viewMode, setViewMode] = useState<"list" | "cards">("cards")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const { toast } = useToast()
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    setIsSubmitting(true)
+    
     const formData = new FormData(e.currentTarget)
     const title = formData.get("title") as string
     const description = formData.get("description") as string
@@ -60,90 +48,110 @@ export function TasksView() {
     const projectId = formData.get("projectId") as string
     const dueDate = formData.get("dueDate") as string
 
-    if (editingTask) {
-      setTasks(
-        tasks.map((t) =>
-          t.id === editingTask.id
-            ? {
-                ...t,
-                title,
-                description,
-                status,
-                priority,
-                projectId: projectId || undefined,
-                dueDate: dueDate || undefined,
-                updatedAt: new Date().toISOString(),
-              }
-            : t,
-        ),
-      )
-      toast({
-        title: "Tarefa atualizada!",
-        description: `${title} foi atualizada com sucesso.`,
-      })
-    } else {
-      const newTask: Task = {
-        id: Date.now().toString(),
-        title,
-        description,
-        status,
-        priority,
-        projectId: projectId || undefined,
-        dueDate: dueDate || undefined,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+    try {
+      if (editingTask) {
+        await updateTask(editingTask.id, {
+          title,
+          description,
+          status,
+          priority,
+          project_id: projectId || null,
+          due_date: dueDate || null,
+        })
+        toast({
+          title: "Tarefa atualizada!",
+          description: `${title} foi atualizada com sucesso.`,
+        })
+      } else {
+        await createTask({
+          title,
+          description,
+          status,
+          priority,
+          project_id: projectId || null,
+          due_date: dueDate || null,
+        })
+        toast({
+          title: "Tarefa criada!",
+          description: `${title} foi criada com sucesso.`,
+        })
       }
-      setTasks([...tasks, newTask])
+
+      setIsDialogOpen(false)
+      setEditingTask(null)
+    } catch (error: any) {
       toast({
-        title: "Tarefa criada!",
-        description: `${title} foi criada com sucesso.`,
+        title: "Erro",
+        description: error.message || "Erro ao salvar tarefa.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    const task = tasks.find((t) => t.id === id)
+    try {
+      await deleteTask(id)
+      toast({
+        title: "Tarefa excluída!",
+        description: `${task?.title} foi excluída.`,
+        variant: "destructive",
+      })
+    } catch (error: any) {
+      toast({
+        title: "Erro",
+        description: error.message || "Erro ao excluir tarefa.",
+        variant: "destructive",
       })
     }
-
-    setIsDialogOpen(false)
-    setEditingTask(null)
   }
 
-  const handleDelete = (id: string) => {
-    const task = tasks.find((t) => t.id === id)
-    setTasks(tasks.filter((t) => t.id !== id))
-    toast({
-      title: "Tarefa excluída!",
-      description: `${task?.title} foi excluída.`,
-      variant: "destructive",
-    })
-  }
+  const handleStatusChange = async (id: string, status: Task["status"]) => {
+    try {
+      await updateTask(id, { status })
 
-  const handleStatusChange = (id: string, status: Task["status"]) => {
-    setTasks(tasks.map((t) => (t.id === id ? { ...t, status, updatedAt: new Date().toISOString() } : t)))
+      const statusText = {
+        pending: "pendente",
+        "in-progress": "em progresso",
+        completed: "concluída",
+      }
 
-    const statusText = {
-      pending: "pendente",
-      "in-progress": "em progresso",
-      completed: "concluída",
+      toast({
+        title: "Status atualizado!",
+        description: `Tarefa marcada como ${statusText[status]}.`,
+      })
+    } catch (error: any) {
+      toast({
+        title: "Erro",
+        description: error.message || "Erro ao atualizar status.",
+        variant: "destructive",
+      })
     }
-
-    toast({
-      title: "Status atualizado!",
-      description: `Tarefa marcada como ${statusText[status]}.`,
-    })
   }
 
-  const addTestTask = () => {
-    const testTask: Task = {
-      id: Date.now().toString(),
-      title: "Tarefa de Teste",
-      description: "Esta é uma tarefa de exemplo para demonstrar as funcionalidades do DevFlow.",
-      status: "pending",
-      priority: "medium",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+  const addTestTask = async () => {
+    try {
+      await createTask({
+        title: "Tarefa de Teste",
+        description: "Esta é uma tarefa de exemplo para demonstrar as funcionalidades do DevFlow.",
+        status: "pending",
+        priority: "medium",
+        project_id: null,
+        due_date: null,
+      })
+      toast({
+        title: "Tarefa de teste criada!",
+        description: "Use esta tarefa para testar as funcionalidades.",
+      })
+    } catch (error: any) {
+      toast({
+        title: "Erro",
+        description: error.message || "Erro ao criar tarefa de teste.",
+        variant: "destructive",
+      })
     }
-    setTasks([...tasks, testTask])
-    toast({
-      title: "Tarefa de teste criada!",
-      description: "Use esta tarefa para testar as funcionalidades.",
-    })
   }
 
   const getStatusColor = (status: Task["status"]) => {
@@ -209,7 +217,7 @@ export function TasksView() {
             <div className="flex flex-wrap gap-2 mb-2">
               <Badge className={getStatusColor(task.status)}>{getStatusText(task.status)}</Badge>
               <Badge className={getPriorityColor(task.priority)}>{getPriorityText(task.priority)}</Badge>
-              {task.projectId && <Badge variant="outline">{getProjectName(task.projectId)}</Badge>}
+              {task.project_id && <Badge variant="outline">{getProjectName(task.project_id)}</Badge>}
             </div>
           </div>
           <div className="flex space-x-1">
@@ -232,10 +240,10 @@ export function TasksView() {
       <CardContent>
         <CardDescription className="mb-4">{task.description || "Sem descrição"}</CardDescription>
 
-        {task.dueDate && (
+        {task.due_date && (
           <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 mb-4">
             <Calendar className="h-4 w-4 mr-1" />
-            Prazo: {new Date(task.dueDate).toLocaleDateString("pt-BR")}
+            Prazo: {new Date(task.due_date).toLocaleDateString("pt-BR")}
           </div>
         )}
 
@@ -259,7 +267,7 @@ export function TasksView() {
         </div>
 
         <div className="text-xs text-gray-500 dark:text-gray-400">
-          Criada em {new Date(task.createdAt).toLocaleDateString("pt-BR")}
+          Criada em {new Date(task.created_at).toLocaleDateString("pt-BR")}
         </div>
       </CardContent>
     </Card>
@@ -283,11 +291,11 @@ export function TasksView() {
           <Badge className={getPriorityColor(task.priority)} variant="secondary">
             {getPriorityText(task.priority)}
           </Badge>
-          {task.projectId && <Badge variant="outline">{getProjectName(task.projectId)}</Badge>}
-          {task.dueDate && (
+          {task.project_id && <Badge variant="outline">{getProjectName(task.project_id)}</Badge>}
+          {task.due_date && (
             <span className="text-xs text-gray-500 flex items-center">
               <Calendar className="h-3 w-3 mr-1" />
-              {new Date(task.dueDate).toLocaleDateString("pt-BR")}
+              {new Date(task.due_date).toLocaleDateString("pt-BR")}
             </span>
           )}
         </div>
@@ -319,12 +327,19 @@ export function TasksView() {
           <p className="text-gray-600 dark:text-gray-400">Gerencie suas tarefas e acompanhe o progresso</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={addTestTask}>
+          <Button 
+            variant="outline" 
+            onClick={addTestTask}
+            disabled={loading}
+          >
             Tarefa de Teste
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => setEditingTask(null)}>
+              <Button 
+                onClick={() => setEditingTask(null)}
+                disabled={loading}
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 Nova Tarefa
               </Button>
@@ -347,6 +362,7 @@ export function TasksView() {
                     placeholder="Ex: Implementar login, Corrigir bug..."
                     defaultValue={editingTask?.title || ""}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="space-y-2">
@@ -357,13 +373,14 @@ export function TasksView() {
                     placeholder="Descreva os detalhes da tarefa..."
                     defaultValue={editingTask?.description || ""}
                     rows={3}
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="status">Status</Label>
                     <Select name="status" defaultValue={editingTask?.status || "pending"}>
-                      <SelectTrigger>
+                      <SelectTrigger disabled={isSubmitting}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -376,7 +393,7 @@ export function TasksView() {
                   <div className="space-y-2">
                     <Label htmlFor="priority">Prioridade</Label>
                     <Select name="priority" defaultValue={editingTask?.priority || "medium"}>
-                      <SelectTrigger>
+                      <SelectTrigger disabled={isSubmitting}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -389,8 +406,8 @@ export function TasksView() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="projectId">Projeto (Opcional)</Label>
-                  <Select name="projectId" defaultValue={editingTask?.projectId || "none"}>
-                    <SelectTrigger>
+                  <Select name="projectId" defaultValue={editingTask?.project_id || "none"}>
+                    <SelectTrigger disabled={isSubmitting}>
                       <SelectValue placeholder="Selecione um projeto" />
                     </SelectTrigger>
                     <SelectContent>
@@ -405,13 +422,36 @@ export function TasksView() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="dueDate">Data de Prazo (Opcional)</Label>
-                  <Input id="dueDate" name="dueDate" type="date" defaultValue={editingTask?.dueDate || ""} />
+                  <Input 
+                    id="dueDate" 
+                    name="dueDate" 
+                    type="date" 
+                    defaultValue={editingTask?.due_date || ""} 
+                    disabled={isSubmitting}
+                  />
                 </div>
                 <div className="flex justify-end space-x-2">
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setIsDialogOpen(false)}
+                    disabled={isSubmitting}
+                  >
                     Cancelar
                   </Button>
-                  <Button type="submit">{editingTask ? "Atualizar" : "Criar"} Tarefa</Button>
+                  <Button 
+                    type="submit"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <LoadingSpinner size="sm" className="mr-2" />
+                        {editingTask ? "Atualizando..." : "Criando..."}
+                      </>
+                    ) : (
+                      `${editingTask ? "Atualizar" : "Criar"} Tarefa`
+                    )}
+                  </Button>
                 </div>
               </form>
             </DialogContent>
@@ -419,110 +459,138 @@ export function TasksView() {
         </div>
       </div>
 
-      {/* View Toggle */}
-      <div className="flex justify-between items-center">
-        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as "list" | "cards")}>
-          <TabsList>
-            <TabsTrigger value="cards">Cards</TabsTrigger>
-            <TabsTrigger value="list">Lista</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="text-sm text-gray-600 dark:text-gray-400">
-          {tasks.length} tarefa{tasks.length !== 1 ? "s" : ""}
+      {/* Error State */}
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            <p className="text-sm text-destructive">{error}</p>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Tasks Content */}
-      {tasks.length === 0 ? (
-        <Card className="text-center py-12">
-          <CardContent>
-            <CheckSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Nenhuma tarefa ainda</h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">
-              Crie sua primeira tarefa para começar a organizar seu trabalho.
-            </p>
-            <Button onClick={addTestTask} variant="outline" className="mr-2">
-              Criar Tarefa de Teste
-            </Button>
-            <Button onClick={() => setIsDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Tarefa
-            </Button>
-          </CardContent>
-        </Card>
+      {/* Retry Status */}
+      <RetryStatus
+        isRetrying={retryState.isRetrying}
+        attempt={retryState.attempt}
+        maxAttempts={retryState.maxAttempts}
+        lastError={retryState.lastError}
+        operationName="Operação de tarefa"
+      />
+
+      {/* Loading State */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <LoadingSpinner text="Carregando tarefas..." size="lg" />
+        </div>
       ) : (
-        <Tabs defaultValue="all" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="all">Todas ({tasks.length})</TabsTrigger>
-            <TabsTrigger value="pending">Pendentes ({filterTasksByStatus("pending").length})</TabsTrigger>
-            <TabsTrigger value="in-progress">Em Progresso ({filterTasksByStatus("in-progress").length})</TabsTrigger>
-            <TabsTrigger value="completed">Concluídas ({filterTasksByStatus("completed").length})</TabsTrigger>
-          </TabsList>
+        <>
+          {/* View Toggle */}
+          <div className="flex justify-between items-center">
+            <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as "list" | "cards")}>
+              <TabsList>
+                <TabsTrigger value="cards">Cards</TabsTrigger>
+                <TabsTrigger value="list">Lista</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="text-sm text-gray-600 dark:text-gray-400">
+              {tasks.length} tarefa{tasks.length !== 1 ? "s" : ""}
+            </div>
+          </div>
 
-          <TabsContent value="all">
-            {viewMode === "cards" ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {tasks.map((task) => (
-                  <TaskCard key={task.id} task={task} />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {tasks.map((task) => (
-                  <TaskListItem key={task.id} task={task} />
-                ))}
-              </div>
-            )}
-          </TabsContent>
+          {/* Tasks Content */}
+          {tasks.length === 0 ? (
+            <Card className="text-center py-12">
+              <CardContent>
+                <CheckSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Nenhuma tarefa ainda</h3>
+                <p className="text-gray-600 dark:text-gray-400 mb-4">
+                  Crie sua primeira tarefa para começar a organizar seu trabalho.
+                </p>
+                <Button onClick={addTestTask} variant="outline" className="mr-2">
+                  Criar Tarefa de Teste
+                </Button>
+                <Button onClick={() => setIsDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Nova Tarefa
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <Tabs defaultValue="all" className="space-y-6">
+              <TabsList>
+                <TabsTrigger value="all">Todas ({tasks.length})</TabsTrigger>
+                <TabsTrigger value="pending">Pendentes ({filterTasksByStatus("pending").length})</TabsTrigger>
+                <TabsTrigger value="in-progress">Em Progresso ({filterTasksByStatus("in-progress").length})</TabsTrigger>
+                <TabsTrigger value="completed">Concluídas ({filterTasksByStatus("completed").length})</TabsTrigger>
+              </TabsList>
 
-          <TabsContent value="pending">
-            {viewMode === "cards" ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filterTasksByStatus("pending").map((task) => (
-                  <TaskCard key={task.id} task={task} />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filterTasksByStatus("pending").map((task) => (
-                  <TaskListItem key={task.id} task={task} />
-                ))}
-              </div>
-            )}
-          </TabsContent>
+              <TabsContent value="all">
+                {viewMode === "cards" ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {tasks.map((task) => (
+                      <TaskCard key={task.id} task={task} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {tasks.map((task) => (
+                      <TaskListItem key={task.id} task={task} />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
 
-          <TabsContent value="in-progress">
-            {viewMode === "cards" ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filterTasksByStatus("in-progress").map((task) => (
-                  <TaskCard key={task.id} task={task} />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filterTasksByStatus("in-progress").map((task) => (
-                  <TaskListItem key={task.id} task={task} />
-                ))}
-              </div>
-            )}
-          </TabsContent>
+              <TabsContent value="pending">
+                {viewMode === "cards" ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filterTasksByStatus("pending").map((task) => (
+                      <TaskCard key={task.id} task={task} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {filterTasksByStatus("pending").map((task) => (
+                      <TaskListItem key={task.id} task={task} />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
 
-          <TabsContent value="completed">
-            {viewMode === "cards" ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filterTasksByStatus("completed").map((task) => (
-                  <TaskCard key={task.id} task={task} />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filterTasksByStatus("completed").map((task) => (
-                  <TaskListItem key={task.id} task={task} />
-                ))}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
+              <TabsContent value="in-progress">
+                {viewMode === "cards" ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filterTasksByStatus("in-progress").map((task) => (
+                      <TaskCard key={task.id} task={task} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {filterTasksByStatus("in-progress").map((task) => (
+                      <TaskListItem key={task.id} task={task} />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="completed">
+                {viewMode === "cards" ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filterTasksByStatus("completed").map((task) => (
+                      <TaskCard key={task.id} task={task} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {filterTasksByStatus("completed").map((task) => (
+                      <TaskListItem key={task.id} task={task} />
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          )}
+        </>
       )}
     </div>
   )

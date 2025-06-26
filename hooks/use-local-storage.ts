@@ -1,33 +1,38 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { storage } from "@/lib/utils"
 
 export function useLocalStorage<T>(key: string, initialValue: T) {
+  // Referência estável para initialValue
+  const initialValueRef = useRef(initialValue)
+  
   // Estado com lazy initialization
   const [storedValue, setStoredValue] = useState<T>(() => {
-    return storage.get(key, initialValue)
+    return storage.get(key, initialValueRef.current)
   })
 
   // Função para atualizar o valor
   const setValue = useCallback(
     (value: T | ((val: T) => T)) => {
       try {
-        const valueToStore = value instanceof Function ? value(storedValue) : value
-        setStoredValue(valueToStore)
-        storage.set(key, valueToStore)
+        setStoredValue((prevValue) => {
+          const valueToStore = value instanceof Function ? value(prevValue) : value
+          storage.set(key, valueToStore)
+          return valueToStore
+        })
       } catch (error) {
         console.error(`Error setting localStorage key "${key}":`, error)
       }
     },
-    [key, storedValue],
+    [key],
   )
 
   // Sincronizar com localStorage quando a chave muda
   useEffect(() => {
-    const value = storage.get(key, initialValue)
+    const value = storage.get(key, initialValueRef.current)
     setStoredValue(value)
-  }, [key, initialValue])
+  }, [key])
 
   // Listener para mudanças em outras abas
   useEffect(() => {

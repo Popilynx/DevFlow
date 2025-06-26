@@ -21,7 +21,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useCodeSnippets } from "@/hooks/use-database"
 import { useToast } from "@/hooks/use-toast"
 import { generateCodeSnippet } from "@/lib/gemini"
-import { Plus, Code, Copy, Edit, Trash2, Search, Sparkles } from "lucide-react"
+import { Plus, Code, Copy, Edit, Trash2, Search, Sparkles, AlertTriangle } from "lucide-react"
+import { LoadingSpinner } from "@/components/ui/loading-spinner"
+import { RetryStatus } from "@/components/ui/retry-status"
 
 const LANGUAGES = [
   "javascript",
@@ -60,17 +62,20 @@ const SAMPLE_PROMPTS = [
 ]
 
 export function SnippetsView() {
-  const { snippets, loading, createSnippet, updateSnippet, deleteSnippet } = useCodeSnippets()
+  const { snippets, loading, createSnippet, updateSnippet, deleteSnippet, error, retryState } = useCodeSnippets()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSnippet, setEditingSnippet] = useState<any>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedLanguage, setSelectedLanguage] = useState<string>("all")
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatorPrompt, setGeneratorPrompt] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
+    setIsSubmitting(true)
+    
     const formData = new FormData(e.currentTarget)
     const title = formData.get("title") as string
     const description = formData.get("description") as string
@@ -111,12 +116,14 @@ export function SnippetsView() {
 
       setIsDialogOpen(false)
       setEditingSnippet(null)
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Erro",
-        description: "Não foi possível salvar o snippet.",
+        description: error.message || "Não foi possível salvar o snippet.",
         variant: "destructive",
       })
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -128,10 +135,10 @@ export function SnippetsView() {
         description: "O snippet foi excluído com sucesso.",
         variant: "destructive",
       })
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Erro",
-        description: "Não foi possível excluir o snippet.",
+        description: error.message || "Não foi possível excluir o snippet.",
         variant: "destructive",
       })
     }
@@ -174,10 +181,10 @@ export function SnippetsView() {
         title: "✨ Snippet gerado!",
         description: "Código gerado com sucesso pela IA.",
       })
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Erro na geração",
-        description: "Não foi possível gerar o código. Tente novamente.",
+        description: error.message || "Não foi possível gerar o código. Tente novamente.",
         variant: "destructive",
       })
     } finally {
@@ -200,24 +207,18 @@ export function SnippetsView() {
     clearTimeout(timeout);
     timeout = setTimeout(later, wait);
   };
-}
-
-// Exemplo de uso
-const debouncedSearch = debounce((query) => {
-  console.log('Searching for:', query);
-}, 300);`,
+}`,
         language: "javascript",
-        tags: ["javascript", "utility", "performance"],
+        tags: ["javascript", "debounce", "utility"],
       })
-
       toast({
         title: "Snippet de teste criado!",
         description: "Use este snippet para testar as funcionalidades.",
       })
-    } catch (error) {
+    } catch (error: any) {
       toast({
         title: "Erro",
-        description: "Não foi possível criar o snippet de teste.",
+        description: error.message || "Erro ao criar snippet de teste.",
         variant: "destructive",
       })
     }
@@ -252,12 +253,19 @@ const debouncedSearch = debounce((query) => {
           <p className="text-gray-600 dark:text-gray-400">Gerencie e organize seus trechos de código</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={addTestSnippet}>
+          <Button 
+            variant="outline" 
+            onClick={addTestSnippet}
+            disabled={loading}
+          >
             Snippet de Teste
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => setEditingSnippet(null)}>
+              <Button 
+                onClick={() => setEditingSnippet(null)}
+                disabled={loading}
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 Novo Snippet
               </Button>
@@ -280,6 +288,7 @@ const debouncedSearch = debounce((query) => {
                     placeholder="Ex: Função de validação, Hook customizado..."
                     defaultValue={editingSnippet?.title || ""}
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="space-y-2">
@@ -290,13 +299,14 @@ const debouncedSearch = debounce((query) => {
                     placeholder="Descreva o que este código faz..."
                     defaultValue={editingSnippet?.description || ""}
                     rows={2}
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="language">Linguagem</Label>
                     <Select name="language" defaultValue={editingSnippet?.language || "javascript"}>
-                      <SelectTrigger>
+                      <SelectTrigger disabled={isSubmitting}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -315,6 +325,7 @@ const debouncedSearch = debounce((query) => {
                       name="tags"
                       placeholder="react, hook, utility"
                       defaultValue={editingSnippet?.tags?.join(", ") || ""}
+                      disabled={isSubmitting}
                     />
                   </div>
                 </div>
@@ -328,13 +339,31 @@ const debouncedSearch = debounce((query) => {
                     rows={10}
                     className="font-mono text-sm"
                     required
+                    disabled={isSubmitting}
                   />
                 </div>
                 <div className="flex justify-end space-x-2">
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setIsDialogOpen(false)}
+                    disabled={isSubmitting}
+                  >
                     Cancelar
                   </Button>
-                  <Button type="submit">{editingSnippet ? "Atualizar" : "Criar"} Snippet</Button>
+                  <Button 
+                    type="submit"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <LoadingSpinner size="sm" className="mr-2" />
+                        {editingSnippet ? "Atualizando..." : "Criando..."}
+                      </>
+                    ) : (
+                      `${editingSnippet ? "Atualizar" : "Criar"} Snippet`
+                    )}
+                  </Button>
                 </div>
               </form>
             </DialogContent>
@@ -342,177 +371,207 @@ const debouncedSearch = debounce((query) => {
         </div>
       </div>
 
-      {/* Gerador de Código com IA */}
-      <Card className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20">
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Sparkles className="h-5 w-5 text-purple-600" />
-            <span>Gerador de Código IA (Gemini)</span>
-          </CardTitle>
-          <CardDescription>Descreva o que você precisa e deixe a IA gerar o código para você</CardDescription>
-        </CardHeader>
-        <CardContent>
+      {/* Error State */}
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            <p className="text-sm text-destructive">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Retry Status */}
+      <RetryStatus
+        isRetrying={retryState.isRetrying}
+        attempt={retryState.attempt}
+        maxAttempts={retryState.maxAttempts}
+        lastError={retryState.lastError}
+        operationName="Operação de snippet"
+      />
+
+      {/* Loading State */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <LoadingSpinner text="Carregando snippets..." size="lg" />
+        </div>
+      ) : (
+        <>
+          {/* Gerador de Código com IA */}
+          <Card className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Sparkles className="h-5 w-5 text-purple-600" />
+                <span>Gerador de Código IA (Gemini)</span>
+              </CardTitle>
+              <CardDescription>Descreva o que você precisa e deixe a IA gerar o código para você</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex-1">
+                  <Input
+                    placeholder="Ex: Função para validar email em JavaScript"
+                    value={generatorPrompt}
+                    onChange={(e) => setGeneratorPrompt(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && !isGenerating && handleGenerateSnippet()}
+                    disabled={isGenerating}
+                  />
+                </div>
+                <Button
+                  onClick={handleGenerateSnippet}
+                  disabled={isGenerating || !generatorPrompt.trim()}
+                  className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                >
+                  {isGenerating ? (
+                    <>
+                      <LoadingSpinner size="sm" className="mr-2" />
+                      Gerando...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Gerar Código
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {/* Prompts de exemplo */}
+              <div className="mt-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Exemplos de prompts:</p>
+                <div className="flex flex-wrap gap-2">
+                  {SAMPLE_PROMPTS.slice(0, 4).map((prompt, index) => (
+                    <Button
+                      key={index}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setGeneratorPrompt(prompt)}
+                      className="text-xs"
+                      disabled={isGenerating}
+                    >
+                      {prompt}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Filtros */}
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
-              <Input
-                placeholder="Ex: Função para validar email em JavaScript"
-                value={generatorPrompt}
-                onChange={(e) => setGeneratorPrompt(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !isGenerating && handleGenerateSnippet()}
-              />
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Buscar snippets..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
             </div>
-            <Button
-              onClick={handleGenerateSnippet}
-              disabled={isGenerating || !generatorPrompt.trim()}
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-            >
-              {isGenerating ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                  Gerando...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Gerar Código
-                </>
-              )}
-            </Button>
+            <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="Todas as linguagens" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as linguagens</SelectItem>
+                {LANGUAGES.map((lang) => (
+                  <SelectItem key={lang} value={lang}>
+                    {lang.charAt(0).toUpperCase() + lang.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          {/* Prompts de exemplo */}
-          <div className="mt-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Exemplos de prompts:</p>
-            <div className="flex flex-wrap gap-2">
-              {SAMPLE_PROMPTS.slice(0, 4).map((prompt, index) => (
-                <Button
-                  key={index}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setGeneratorPrompt(prompt)}
-                  className="text-xs"
-                >
-                  {prompt}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Filtros */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="flex-1">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Buscar snippets..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </div>
-        <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Todas as linguagens" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas as linguagens</SelectItem>
-            {LANGUAGES.map((lang) => (
-              <SelectItem key={lang} value={lang}>
-                {lang.charAt(0).toUpperCase() + lang.slice(1)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Snippets Grid */}
-      {filteredSnippets.length === 0 ? (
-        <Card className="text-center py-12">
-          <CardContent>
-            <Code className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-              {snippets.length === 0 ? "Nenhum snippet ainda" : "Nenhum snippet encontrado"}
-            </h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">
-              {snippets.length === 0
-                ? "Crie seu primeiro snippet ou use o gerador de IA."
-                : "Tente ajustar os filtros de busca."}
-            </p>
-            {snippets.length === 0 && (
-              <>
-                <Button onClick={addTestSnippet} variant="outline" className="mr-2">
-                  Criar Snippet de Teste
-                </Button>
-                <Button onClick={() => setIsDialogOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Novo Snippet
-                </Button>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {filteredSnippets.map((snippet) => (
-            <Card key={snippet.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <CardTitle className="text-lg mb-2">{snippet.title}</CardTitle>
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      <Badge variant="secondary">{snippet.language}</Badge>
-                      {snippet.tags?.map((tag) => (
-                        <Badge key={tag} variant="outline">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex space-x-1">
-                    <Button variant="ghost" size="icon" onClick={() => handleCopy(snippet.code, snippet.title)}>
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        setEditingSnippet(snippet)
-                        setIsDialogOpen(true)
-                      }}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(snippet.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
+          {/* Snippets Grid */}
+          {filteredSnippets.length === 0 ? (
+            <Card className="text-center py-12">
               <CardContent>
-                <CardDescription className="mb-4">{snippet.description || "Sem descrição"}</CardDescription>
-
-                <div className="bg-gray-900 dark:bg-gray-950 rounded-lg p-4 overflow-x-auto">
-                  <pre className="text-sm text-gray-100">
-                    <code>{snippet.code}</code>
-                  </pre>
-                </div>
-
-                <div className="flex justify-between items-center mt-4">
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    Criado em {new Date(snippet.created_at).toLocaleDateString("pt-BR")}
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => handleCopy(snippet.code, snippet.title)}>
-                    <Copy className="h-3 w-3 mr-1" />
-                    Copiar
-                  </Button>
-                </div>
+                <Code className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                  {snippets.length === 0 ? "Nenhum snippet ainda" : "Nenhum snippet encontrado"}
+                </h3>
+                <p className="text-gray-600 dark:text-gray-400 mb-4">
+                  {snippets.length === 0
+                    ? "Crie seu primeiro snippet ou use o gerador de IA."
+                    : "Tente ajustar os filtros de busca."}
+                </p>
+                {snippets.length === 0 && (
+                  <>
+                    <Button onClick={addTestSnippet} variant="outline" className="mr-2">
+                      Criar Snippet de Teste
+                    </Button>
+                    <Button onClick={() => setIsDialogOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Novo Snippet
+                    </Button>
+                  </>
+                )}
               </CardContent>
             </Card>
-          ))}
-        </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {filteredSnippets.map((snippet) => (
+                <Card key={snippet.id} className="hover:shadow-lg transition-shadow">
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <CardTitle className="text-lg mb-2">{snippet.title}</CardTitle>
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          <Badge variant="secondary">{snippet.language}</Badge>
+                          {snippet.tags?.map((tag) => (
+                            <Badge key={tag} variant="outline">
+                              {tag}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex space-x-1">
+                        <Button variant="ghost" size="icon" onClick={() => handleCopy(snippet.code, snippet.title)}>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEditingSnippet(snippet)
+                            setIsDialogOpen(true)
+                          }}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(snippet.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="mb-4">{snippet.description || "Sem descrição"}</CardDescription>
+
+                    <div className="bg-gray-900 dark:bg-gray-950 rounded-lg p-4 overflow-x-auto">
+                      <pre className="text-sm text-gray-100">
+                        <code>{snippet.code}</code>
+                      </pre>
+                    </div>
+
+                    <div className="flex justify-between items-center mt-4">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        Criado em {new Date(snippet.created_at).toLocaleDateString("pt-BR")}
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => handleCopy(snippet.code, snippet.title)}>
+                        <Copy className="h-3 w-3 mr-1" />
+                        Copiar
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   )

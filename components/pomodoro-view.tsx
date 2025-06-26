@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -90,9 +90,9 @@ export function PomodoroView() {
         clearInterval(intervalRef.current)
       }
     }
-  }, [isRunning, timeLeft])
+  }, [isRunning])
 
-  const handleTimerComplete = () => {
+  const handleTimerComplete = useCallback(() => {
     setIsRunning(false)
 
     // Salvar sessão
@@ -133,7 +133,7 @@ export function PomodoroView() {
     if ("vibrate" in navigator) {
       navigator.vibrate([200, 100, 200])
     }
-  }
+  }, [currentType, settings, completedSessions, toast])
 
   const handleStart = () => {
     setIsRunning(true)

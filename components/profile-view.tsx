@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAuth } from "@/components/auth-provider"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useToast } from "@/hooks/use-toast"
+import { useRoles } from "@/hooks/use-roles"
 import {
   User,
   Edit,
@@ -37,6 +38,7 @@ import {
   Plus,
   ExternalLink,
 } from "lucide-react"
+import { supabase } from "@/lib/supabase"
 
 interface UserProfile {
   name: string
@@ -130,30 +132,95 @@ const SKILL_SUGGESTIONS = [
 
 export function ProfileView() {
   const { user } = useAuth()
-  const [profile, setProfile] = useLocalStorage<UserProfile>("devflow_profile", {
-    name: user?.name || "",
-    email: user?.email || "",
-    bio: "Desenvolvedor apaixonado por tecnologia e inovação. Sempre em busca de novos desafios e aprendizados.",
-    state: "SP",
-    city: "São Paulo",
-    website: "https://meusite.dev",
-    github: "https://github.com/usuario",
-    linkedin: "https://linkedin.com/in/usuario",
-    skills: ["JavaScript", "React", "Node.js", "TypeScript", "Python", "Git"],
-    experience: "3+ anos",
-  })
-
+  const { role, loading: roleLoading } = useRoles()
+  const [profile, setProfile] = useState<UserProfile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
   const [projects] = useLocalStorage("devflow_projects", [])
   const [tasks] = useLocalStorage("devflow_tasks", [])
   const [snippets] = useLocalStorage("devflow_snippets", [])
   const [pomodoroSessions] = useLocalStorage("devflow_pomodoro_sessions", [])
 
   const [isEditing, setIsEditing] = useState(false)
-  const [editedProfile, setEditedProfile] = useState(profile)
+  const [editedProfile, setEditedProfile] = useState<UserProfile | null>(null)
   const [newSkill, setNewSkill] = useState("")
   const [showSkillSuggestions, setShowSkillSuggestions] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
+
+  // Carregar perfil do Supabase
+  const loadProfile = async () => {
+    if (!user) {
+      setLoading(false)
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError(null)
+
+      const { data, error: dbError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single()
+
+      if (dbError && dbError.code !== "PGRST116") {
+        throw dbError
+      }
+
+      if (data) {
+        const profileData: UserProfile = {
+          name: data.name || "",
+          email: data.email || "",
+          bio: data.bio || "Desenvolvedor apaixonado por tecnologia e inovação. Sempre em busca de novos desafios e aprendizados.",
+          state: "SP",
+          city: "São Paulo",
+          website: data.website || "https://meusite.dev",
+          github: data.github || "https://github.com/usuario",
+          linkedin: data.linkedin || "https://linkedin.com/in/usuario",
+          skills: data.skills || ["JavaScript", "React", "Node.js", "TypeScript", "Python", "Git"],
+          experience: data.experience || "3+ anos",
+          avatar: data.avatar_url,
+        }
+        setProfile(profileData)
+        setEditedProfile(profileData)
+      } else {
+        // Criar perfil padrão se não existir
+        const defaultProfile: UserProfile = {
+          name: user.user_metadata?.name || user.email?.split("@")[0] || "Usuário",
+          email: user.email || "",
+          bio: "Desenvolvedor apaixonado por tecnologia e inovação. Sempre em busca de novos desafios e aprendizados.",
+          state: "SP",
+          city: "São Paulo",
+          website: "https://meusite.dev",
+          github: "https://github.com/usuario",
+          linkedin: "https://linkedin.com/in/usuario",
+          skills: ["JavaScript", "React", "Node.js", "TypeScript", "Python", "Git"],
+          experience: "3+ anos",
+        }
+        setProfile(defaultProfile)
+        setEditedProfile(defaultProfile)
+      }
+    } catch (err: any) {
+      console.error("Erro ao carregar perfil:", err)
+      setError("Erro ao carregar perfil do usuário")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Sincronizar editedProfile com profile
+  useEffect(() => {
+    if (profile) {
+      setEditedProfile(profile)
+    }
+  }, [profile])
+
+  useEffect(() => {
+    loadProfile()
+  }, [user])
 
   // Calcular estatísticas
   const stats = {
@@ -221,13 +288,38 @@ export function ProfileView() {
   const unlockedAchievements = achievements.filter((a) => a.unlocked)
   const achievementProgress = (unlockedAchievements.length / achievements.length) * 100
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setProfile(editedProfile)
     setIsEditing(false)
     toast({
       title: "Perfil atualizado!",
       description: "Suas informações foram salvas com sucesso.",
     })
+
+    // Atualizar perfil no Supabase
+    if (user) {
+      await supabase.from("profiles").update({
+        name: editedProfile?.name,
+        email: editedProfile?.email,
+        bio: editedProfile?.bio,
+        state: editedProfile?.state,
+        city: editedProfile?.city,
+        website: editedProfile?.website,
+        github: editedProfile?.github,
+        linkedin: editedProfile?.linkedin,
+        skills: editedProfile?.skills,
+        experience: editedProfile?.experience,
+        avatar_url: editedProfile?.avatar || null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", user.id)
+
+      // Atualizar avatar no user_metadata do Supabase Auth
+      if (editedProfile?.avatar) {
+        await supabase.auth.updateUser({
+          data: { avatar: editedProfile.avatar }
+        })
+      }
+    }
   }
 
   const handleCancel = () => {
@@ -237,7 +329,7 @@ export function ProfileView() {
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    if (file) {
+    if (file && editedProfile) {
       if (file.size > 5 * 1024 * 1024) {
         // 5MB limit
         toast({
@@ -258,7 +350,7 @@ export function ProfileView() {
   }
 
   const addSkill = (skill: string) => {
-    if (skill && !editedProfile.skills.includes(skill)) {
+    if (skill && editedProfile && !editedProfile.skills.includes(skill)) {
       setEditedProfile({
         ...editedProfile,
         skills: [...editedProfile.skills, skill],
@@ -269,19 +361,21 @@ export function ProfileView() {
   }
 
   const removeSkill = (skillToRemove: string) => {
-    setEditedProfile({
-      ...editedProfile,
-      skills: editedProfile.skills.filter((skill) => skill !== skillToRemove),
-    })
+    if (editedProfile) {
+      setEditedProfile({
+        ...editedProfile,
+        skills: editedProfile.skills.filter((skill) => skill !== skillToRemove),
+      })
+    }
   }
 
   const filteredSkillSuggestions = SKILL_SUGGESTIONS.filter(
-    (skill) => skill.toLowerCase().includes(newSkill.toLowerCase()) && !editedProfile.skills.includes(skill),
+    (skill) => skill.toLowerCase().includes(newSkill.toLowerCase()) && !editedProfile?.skills.includes(skill),
   ).slice(0, 8)
 
   const formatLocation = () => {
-    const state = BRAZILIAN_STATES.find((s) => s.value === profile.state)
-    return profile.city && state ? `${profile.city}, ${state.label}` : state?.label || profile.state
+    const state = BRAZILIAN_STATES.find((s) => s.value === profile?.state)
+    return profile?.city && state ? `${profile.city}, ${state.label}` : state?.label || profile?.state
   }
 
   return (
@@ -328,8 +422,8 @@ export function ProfileView() {
               <div className="flex items-start space-x-6">
                 <div className="relative">
                   <Avatar className="h-32 w-32">
-                    <AvatarImage src={editedProfile.avatar || profile.avatar || "/placeholder.svg"} />
-                    <AvatarFallback className="text-3xl">{profile.name.charAt(0).toUpperCase()}</AvatarFallback>
+                    <AvatarImage src={editedProfile?.avatar || profile?.avatar || "/placeholder.svg"} />
+                    <AvatarFallback className="text-3xl">{profile?.name.charAt(0).toUpperCase()}</AvatarFallback>
                   </Avatar>
                   {isEditing && (
                     <Button
@@ -356,7 +450,7 @@ export function ProfileView() {
                         <Label htmlFor="name">Nome Completo</Label>
                         <Input
                           id="name"
-                          value={editedProfile.name}
+                          value={editedProfile?.name}
                           onChange={(e) => setEditedProfile({ ...editedProfile, name: e.target.value })}
                           placeholder="Seu nome completo"
                         />
@@ -365,7 +459,7 @@ export function ProfileView() {
                         <Label htmlFor="email">Email</Label>
                         <Input
                           id="email"
-                          value={editedProfile.email}
+                          value={editedProfile?.email}
                           onChange={(e) => setEditedProfile({ ...editedProfile, email: e.target.value })}
                           placeholder="seu@email.com"
                           type="email"
@@ -374,7 +468,7 @@ export function ProfileView() {
                       <div>
                         <Label htmlFor="experience">Experiência</Label>
                         <Select
-                          value={editedProfile.experience}
+                          value={editedProfile?.experience}
                           onValueChange={(value) => setEditedProfile({ ...editedProfile, experience: value })}
                         >
                           <SelectTrigger>
@@ -392,15 +486,22 @@ export function ProfileView() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{profile.name}</h2>
-                      <p className="text-gray-600 dark:text-gray-400">{profile.email}</p>
+                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{profile?.name}</h2>
+                      <p className="text-gray-600 dark:text-gray-400">{profile?.email}</p>
                       <div className="flex items-center space-x-2">
                         <MapPin className="h-4 w-4 text-gray-500" />
                         <span className="text-sm text-gray-600 dark:text-gray-400">{formatLocation()}</span>
                       </div>
-                      <Badge variant="secondary" className="mt-2">
-                        {profile.experience} de experiência
-                      </Badge>
+                      <div className="flex items-center space-x-2 mt-2">
+                        <Badge variant="secondary">
+                          {profile?.experience} de experiência
+                        </Badge>
+                        {!roleLoading && (
+                          <Badge variant={role === "admin" ? "default" : "outline"}>
+                            {role === "admin" ? "👑 Administrador" : "👤 Usuário"}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -411,13 +512,13 @@ export function ProfileView() {
                 <Label>Biografia</Label>
                 {isEditing ? (
                   <Textarea
-                    value={editedProfile.bio}
+                    value={editedProfile?.bio}
                     onChange={(e) => setEditedProfile({ ...editedProfile, bio: e.target.value })}
                     placeholder="Conte um pouco sobre você, suas paixões e objetivos..."
                     rows={4}
                   />
                 ) : (
-                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{profile.bio}</p>
+                  <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{profile?.bio}</p>
                 )}
               </div>
 
@@ -427,7 +528,7 @@ export function ProfileView() {
                   <Label>Estado</Label>
                   {isEditing ? (
                     <Select
-                      value={editedProfile.state}
+                      value={editedProfile?.state}
                       onValueChange={(value) => setEditedProfile({ ...editedProfile, state: value })}
                     >
                       <SelectTrigger>
@@ -443,7 +544,7 @@ export function ProfileView() {
                     </Select>
                   ) : (
                     <p className="text-gray-700 dark:text-gray-300">
-                      {BRAZILIAN_STATES.find((s) => s.value === profile.state)?.label || profile.state}
+                      {BRAZILIAN_STATES.find((s) => s.value === profile?.state)?.label || profile?.state}
                     </p>
                   )}
                 </div>
@@ -451,12 +552,12 @@ export function ProfileView() {
                   <Label>Cidade</Label>
                   {isEditing ? (
                     <Input
-                      value={editedProfile.city}
+                      value={editedProfile?.city}
                       onChange={(e) => setEditedProfile({ ...editedProfile, city: e.target.value })}
                       placeholder="Sua cidade"
                     />
                   ) : (
-                    <p className="text-gray-700 dark:text-gray-300">{profile.city}</p>
+                    <p className="text-gray-700 dark:text-gray-300">{profile?.city}</p>
                   )}
                 </div>
               </div>
@@ -470,19 +571,19 @@ export function ProfileView() {
                     <Globe className="h-5 w-5 text-gray-500" />
                     {isEditing ? (
                       <Input
-                        value={editedProfile.website}
+                        value={editedProfile?.website}
                         onChange={(e) => setEditedProfile({ ...editedProfile, website: e.target.value })}
                         placeholder="https://seusite.com"
                         className="flex-1"
                       />
                     ) : (
                       <a
-                        href={profile.website}
+                        href={profile?.website}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-600 hover:underline flex items-center space-x-1"
                       >
-                        <span>{profile.website}</span>
+                        <span>{profile?.website}</span>
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
@@ -493,19 +594,19 @@ export function ProfileView() {
                     <Github className="h-5 w-5 text-gray-500" />
                     {isEditing ? (
                       <Input
-                        value={editedProfile.github}
+                        value={editedProfile?.github}
                         onChange={(e) => setEditedProfile({ ...editedProfile, github: e.target.value })}
                         placeholder="https://github.com/usuario"
                         className="flex-1"
                       />
                     ) : (
                       <a
-                        href={profile.github}
+                        href={profile?.github}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-600 hover:underline flex items-center space-x-1"
                       >
-                        <span>{profile.github}</span>
+                        <span>{profile?.github}</span>
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
@@ -516,19 +617,19 @@ export function ProfileView() {
                     <Linkedin className="h-5 w-5 text-blue-600" />
                     {isEditing ? (
                       <Input
-                        value={editedProfile.linkedin}
+                        value={editedProfile?.linkedin}
                         onChange={(e) => setEditedProfile({ ...editedProfile, linkedin: e.target.value })}
                         placeholder="https://linkedin.com/in/usuario"
                         className="flex-1"
                       />
                     ) : (
                       <a
-                        href={profile.linkedin}
+                        href={profile?.linkedin}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-600 hover:underline flex items-center space-x-1"
                       >
-                        <span>{profile.linkedin}</span>
+                        <span>{profile?.linkedin}</span>
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     )}
@@ -542,7 +643,7 @@ export function ProfileView() {
                 {isEditing ? (
                   <div className="space-y-3">
                     <div className="flex flex-wrap gap-2">
-                      {editedProfile.skills.map((skill) => (
+                      {editedProfile?.skills.map((skill) => (
                         <Badge
                           key={skill}
                           variant="secondary"
@@ -596,7 +697,7 @@ export function ProfileView() {
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    {profile.skills.map((skill) => (
+                    {profile?.skills.map((skill) => (
                       <Badge key={skill} variant="secondary">
                         {skill}
                       </Badge>

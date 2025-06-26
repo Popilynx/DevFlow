@@ -10,8 +10,10 @@ import { LinksView } from "@/components/links-view"
 import { OverviewView } from "@/components/overview-view"
 import { ProfileView } from "@/components/profile-view"
 import { SettingsView } from "@/components/settings-view"
+import { AdminPanel } from "@/components/admin-panel"
+import { DebugPanel } from "@/components/debug-panel"
 
-export type ViewType = "overview" | "projects" | "tasks" | "pomodoro" | "snippets" | "links" | "profile" | "settings"
+export type ViewType = "overview" | "projects" | "tasks" | "pomodoro" | "snippets" | "links" | "profile" | "settings" | "admin" | "debug"
 
 export function Dashboard() {
   const [currentView, setCurrentView] = useState<ViewType>("overview")
@@ -34,6 +36,10 @@ export function Dashboard() {
         return <ProfileView />
       case "settings":
         return <SettingsView />
+      case "admin":
+        return <AdminPanel />
+      case "debug":
+        return <DebugPanel />
       default:
         return <OverviewView />
     }

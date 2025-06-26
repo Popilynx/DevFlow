@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
@@ -19,13 +19,7 @@ export function OverviewView() {
   const { snippets } = useCodeSnippets()
   const [profile, setProfile] = useState<Profile | null>(null)
 
-  useEffect(() => {
-    if (user) {
-      fetchProfile()
-    }
-  }, [user])
-
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     if (!user) return
 
     try {
@@ -61,7 +55,13 @@ export function OverviewView() {
     } catch (error) {
       console.error("Erro ao buscar perfil:", error)
     }
-  }
+  }, [user])
+
+  useEffect(() => {
+    if (user) {
+      fetchProfile()
+    }
+  }, [user, fetchProfile])
 
   const completedTasks = tasks.filter((task) => task.status === "completed").length
   const totalTasks = tasks.length

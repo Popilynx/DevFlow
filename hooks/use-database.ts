@@ -1,135 +1,181 @@
-"use client"
-
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/components/auth-provider"
-import type { Project, Task, CodeSnippet } from "@/lib/supabase"
+import { cacheUtils } from "@/lib/cache"
+import type { Project, Task, CodeSnippet, Link, UserSettings } from "@/lib/supabase"
 
+// Funções auxiliares para normalizar status
+function normalizeProjectStatus(status: string): string {
+  const validStatuses = ["active", "completed", "paused"]
+  return validStatuses.includes(status) ? status : "active"
+}
+
+function normalizeTaskStatus(status: string): string {
+  const validStatuses = ["pending", "in-progress", "completed"]
+  return validStatuses.includes(status) ? status : "pending"
+}
+
+// Função para criar mensagens de erro amigáveis
+function createFriendlyErrorMessage(error: any, operation: string): string {
+  const errorMessage = error?.message || error?.toString() || "Erro desconhecido"
+  
+  // Mapear erros comuns para mensagens amigáveis
+  const errorMap: Record<string, string> = {
+    "JWT_EXPIRED": "Sessão expirada. Faça login novamente.",
+    "TOKEN_REFRESH_FAILED": "Erro de autenticação. Faça login novamente.",
+    "NetworkError": "Erro de conexão. Verifique sua internet.",
+    "fetch failed": "Erro de conexão. Verifique sua internet.",
+    "Failed to fetch": "Erro de conexão. Verifique sua internet.",
+    "Network request failed": "Erro de conexão. Verifique sua internet.",
+    "ECONNRESET": "Conexão perdida. Tentando reconectar...",
+    "ENOTFOUND": "Servidor não encontrado. Verifique sua conexão.",
+    "ETIMEDOUT": "Tempo limite excedido. Verifique sua conexão.",
+    "supabase_error": "Erro no banco de dados. Tente novamente.",
+    "duplicate key value": "Item já existe com essas informações.",
+    "foreign key violation": "Não é possível excluir este item pois está sendo usado.",
+    "not null violation": "Preencha todos os campos obrigatórios.",
+    "unique constraint": "Este item já existe.",
+    "permission denied": "Você não tem permissão para esta ação.",
+    "row level security": "Acesso negado. Faça login novamente."
+  }
+
+  // Verificar se há uma mensagem específica para o erro
+  for (const [key, message] of Object.entries(errorMap)) {
+    if (errorMessage.toLowerCase().includes(key.toLowerCase())) {
+      return message
+    }
+  }
+
+  // Mensagens genéricas baseadas na operação
+  const operationMessages: Record<string, string> = {
+    "create": "Erro ao criar item. Tente novamente.",
+    "update": "Erro ao atualizar item. Tente novamente.",
+    "delete": "Erro ao excluir item. Tente novamente.",
+    "fetch": "Erro ao carregar dados. Tente novamente.",
+    "load": "Erro ao carregar dados. Tente novamente."
+  }
+
+  return operationMessages[operation] || "Ocorreu um erro. Tente novamente."
+}
+
+// Hook para projetos
 export function useProjects() {
-  const { user, demoMode } = useAuth()
+  const { user } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (demoMode) {
-      // Usar dados mockados para demo
-      const mockProjects = JSON.parse(localStorage.getItem("devflow_projects") || "[]")
-      setProjects(mockProjects)
-      setLoading(false)
-      return
-    }
-
+  const loadProjects = useCallback(async () => {
     if (!user) {
       setProjects([])
       setLoading(false)
       return
     }
 
-    fetchProjects()
-  }, [user, demoMode])
+    // Verificar cache primeiro
+    const cached = cacheUtils.projects.get(user.id) as Project[] | null
+    if (cached) {
+      setProjects(cached)
+      setLoading(false)
+      return
+    }
 
-  const fetchProjects = async () => {
     try {
+      setLoading(true)
       setError(null)
-      const { data, error } = await supabase
-        .from("projects")
-        .select("*")
-        .eq("user_id", user?.id)
-        .order("created_at", { ascending: false })
-
+      const { data, error } = await supabase.from("projects").select("*").eq("user_id", user?.id).order("created_at", { ascending: false })
       if (error) throw error
-      setProjects(data || [])
-    } catch (error: any) {
-      console.error("Erro ao buscar projetos:", error)
-      setError(error.message)
+      
+      const projectsData = data || []
+      setProjects(projectsData)
+      
+      // Salvar no cache
+      cacheUtils.projects.set(user.id, projectsData)
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "load")
+      setError(friendlyError)
     } finally {
       setLoading(false)
     }
-  }
+  }, [user])
 
-  const createProject = async (project: Omit<Project, "id" | "user_id" | "created_at" | "updated_at">) => {
-    if (demoMode) {
-      const newProject = {
-        id: Date.now().toString(),
-        user_id: "demo",
-        ...project,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-      const updated = [...projects, newProject]
-      setProjects(updated)
-      localStorage.setItem("devflow_projects", JSON.stringify(updated))
-      return newProject
-    }
-
+  const createProject = useCallback(async (project: Omit<Project, "id" | "user_id" | "created_at" | "updated_at">) => {
     if (!user) throw new Error("Usuário não autenticado")
-
+    
+    console.log("🔍 Creating project:", { 
+      project, 
+      userId: user.id,
+      userEmail: user.email,
+      isAuthenticated: !!user
+    })
+    
     try {
-      setError(null)
-      const { data, error } = await supabase
+      // Fazer o insert sem select
+      const { error: insertError } = await supabase
         .from("projects")
-        .insert([{ ...project, user_id: user.id }])
-        .select()
-        .single()
+        .insert({
+          name: project.name,
+          description: project.description,
+          status: "active",
+          user_id: user.id
+        })
+      
+      if (insertError) {
+        console.error("❌ Insert error:", insertError)
+        throw insertError
+      }
+      
+      console.log("✅ Project inserted successfully")
+      
+      // Invalidar cache
+      cacheUtils.projects.invalidate()
+      
+      // Recarregar a lista de projetos
+      await loadProjects()
+      
+      return { success: true }
+    } catch (err: any) {
+      console.error("❌ Error creating project:", err)
+      const friendlyError = createFriendlyErrorMessage(err, "create")
+      throw new Error(friendlyError)
+    }
+  }, [user, loadProjects])
 
+  const updateProject = useCallback(async (id: string, updates: Partial<Project>) => {
+    if (!user) throw new Error("Usuário não autenticado")
+    try {
+      const { data, error } = await supabase.from("projects").update(updates).eq("id", id).eq("user_id", user?.id).select().single()
       if (error) throw error
-      setProjects([data, ...projects])
+      setProjects(prev => prev.map(p => p.id === id ? data : p))
+      
+      // Invalidar cache
+      cacheUtils.projects.invalidate()
+      
       return data
-    } catch (error: any) {
-      console.error("Erro ao criar projeto:", error)
-      setError(error.message)
-      throw error
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "update")
+      throw new Error(friendlyError)
     }
-  }
+  }, [user])
 
-  const updateProject = async (id: string, updates: Partial<Project>) => {
-    if (demoMode) {
-      const updated = projects.map((p) =>
-        p.id === id ? { ...p, ...updates, updated_at: new Date().toISOString() } : p,
-      )
-      setProjects(updated)
-      localStorage.setItem("devflow_projects", JSON.stringify(updated))
-      return
-    }
-
+  const deleteProject = useCallback(async (id: string) => {
+    if (!user) throw new Error("Usuário não autenticado")
     try {
-      setError(null)
-      const { error } = await supabase
-        .from("projects")
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq("id", id)
-        .eq("user_id", user?.id)
-
-      if (error) throw error
-      setProjects(projects.map((p) => (p.id === id ? { ...p, ...updates } : p)))
-    } catch (error: any) {
-      console.error("Erro ao atualizar projeto:", error)
-      setError(error.message)
-      throw error
-    }
-  }
-
-  const deleteProject = async (id: string) => {
-    if (demoMode) {
-      const updated = projects.filter((p) => p.id !== id)
-      setProjects(updated)
-      localStorage.setItem("devflow_projects", JSON.stringify(updated))
-      return
-    }
-
-    try {
-      setError(null)
       const { error } = await supabase.from("projects").delete().eq("id", id).eq("user_id", user?.id)
-
       if (error) throw error
-      setProjects(projects.filter((p) => p.id !== id))
-    } catch (error: any) {
-      console.error("Erro ao deletar projeto:", error)
-      setError(error.message)
-      throw error
+      setProjects(prev => prev.filter(p => p.id !== id))
+      
+      // Invalidar cache
+      cacheUtils.projects.invalidate()
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "delete")
+      throw new Error(friendlyError)
     }
-  }
+  }, [user])
+
+  useEffect(() => {
+    loadProjects()
+  }, [loadProjects])
 
   return {
     projects,
@@ -138,132 +184,107 @@ export function useProjects() {
     createProject,
     updateProject,
     deleteProject,
-    refetch: fetchProjects,
+    refresh: loadProjects,
+    retryState: {
+      isRetrying: false,
+      attempt: 0,
+      maxAttempts: 3,
+      lastError: null
+    }
   }
 }
 
+// Hook para tarefas
 export function useTasks() {
-  const { user, demoMode } = useAuth()
+  const { user } = useAuth()
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (demoMode) {
-      const mockTasks = JSON.parse(localStorage.getItem("devflow_tasks") || "[]")
-      setTasks(mockTasks)
-      setLoading(false)
-      return
-    }
-
+  const loadTasks = useCallback(async () => {
     if (!user) {
       setTasks([])
       setLoading(false)
       return
     }
 
-    fetchTasks()
-  }, [user, demoMode])
+    // Verificar cache primeiro
+    const cached = cacheUtils.tasks.get(user.id) as Task[] | null
+    if (cached) {
+      setTasks(cached)
+      setLoading(false)
+      return
+    }
 
-  const fetchTasks = async () => {
     try {
+      setLoading(true)
       setError(null)
-      const { data, error } = await supabase
-        .from("tasks")
-        .select("*")
-        .eq("user_id", user?.id)
-        .order("created_at", { ascending: false })
-
+      const { data, error } = await supabase.from("tasks").select("*").eq("user_id", user?.id).order("created_at", { ascending: false })
       if (error) throw error
-      setTasks(data || [])
-    } catch (error: any) {
-      console.error("Erro ao buscar tarefas:", error)
-      setError(error.message)
+      
+      const tasksData = data || []
+      setTasks(tasksData)
+      
+      // Salvar no cache
+      cacheUtils.tasks.set(user.id, tasksData)
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "load")
+      setError(friendlyError)
     } finally {
       setLoading(false)
     }
-  }
+  }, [user])
 
-  const createTask = async (task: Omit<Task, "id" | "user_id" | "created_at" | "updated_at">) => {
-    if (demoMode) {
-      const newTask = {
-        id: Date.now().toString(),
-        user_id: "demo",
-        ...task,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-      const updated = [...tasks, newTask]
-      setTasks(updated)
-      localStorage.setItem("devflow_tasks", JSON.stringify(updated))
-      return newTask
-    }
-
+  const createTask = useCallback(async (task: Omit<Task, "id" | "user_id" | "created_at" | "updated_at">) => {
     if (!user) throw new Error("Usuário não autenticado")
-
     try {
-      setError(null)
       const { data, error } = await supabase
         .from("tasks")
-        .insert([{ ...task, user_id: user.id }])
+        .insert({ 
+          ...task, 
+          user_id: user.id, 
+          status: normalizeTaskStatus(task.status) 
+        })
         .select()
         .single()
-
+      
       if (error) throw error
-      setTasks([data, ...tasks])
+      setTasks(prev => [data, ...prev])
       return data
-    } catch (error: any) {
-      console.error("Erro ao criar tarefa:", error)
-      setError(error.message)
-      throw error
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "create")
+      throw new Error(friendlyError)
     }
-  }
+  }, [user])
 
-  const updateTask = async (id: string, updates: Partial<Task>) => {
-    if (demoMode) {
-      const updated = tasks.map((t) => (t.id === id ? { ...t, ...updates, updated_at: new Date().toISOString() } : t))
-      setTasks(updated)
-      localStorage.setItem("devflow_tasks", JSON.stringify(updated))
-      return
-    }
-
+  const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
+    if (!user) throw new Error("Usuário não autenticado")
     try {
-      setError(null)
-      const { error } = await supabase
-        .from("tasks")
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq("id", id)
-        .eq("user_id", user?.id)
-
+      const { data, error } = await supabase.from("tasks").update(updates).eq("id", id).eq("user_id", user?.id).select().single()
       if (error) throw error
-      setTasks(tasks.map((t) => (t.id === id ? { ...t, ...updates } : t)))
-    } catch (error: any) {
-      console.error("Erro ao atualizar tarefa:", error)
-      setError(error.message)
-      throw error
+      setTasks(prev => prev.map(t => t.id === id ? data : t))
+      return data
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "update")
+      throw new Error(friendlyError)
     }
-  }
+  }, [user])
 
-  const deleteTask = async (id: string) => {
-    if (demoMode) {
-      const updated = tasks.filter((t) => t.id !== id)
-      setTasks(updated)
-      localStorage.setItem("devflow_tasks", JSON.stringify(updated))
-      return
-    }
-
+  const deleteTask = useCallback(async (id: string) => {
+    if (!user) throw new Error("Usuário não autenticado")
     try {
-      setError(null)
       const { error } = await supabase.from("tasks").delete().eq("id", id).eq("user_id", user?.id)
-
       if (error) throw error
-      setTasks(tasks.filter((t) => t.id !== id))
-    } catch (error: any) {
-      console.error("Erro ao deletar tarefa:", error)
-      setError(error.message)
-      throw error
+      setTasks(prev => prev.filter(t => t.id !== id))
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "delete")
+      throw new Error(friendlyError)
     }
-  }
+  }, [user])
+
+  useEffect(() => {
+    loadTasks()
+  }, [loadTasks])
 
   return {
     tasks,
@@ -272,134 +293,106 @@ export function useTasks() {
     createTask,
     updateTask,
     deleteTask,
-    refetch: fetchTasks,
+    refresh: loadTasks,
+    retryState: {
+      isRetrying: false,
+      attempt: 0,
+      maxAttempts: 3,
+      lastError: null
+    }
   }
 }
 
+// Hook para snippets
 export function useCodeSnippets() {
-  const { user, demoMode } = useAuth()
+  const { user } = useAuth()
   const [snippets, setSnippets] = useState<CodeSnippet[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (demoMode) {
-      const mockSnippets = JSON.parse(localStorage.getItem("devflow_snippets") || "[]")
-      setSnippets(mockSnippets)
-      setLoading(false)
-      return
-    }
-
+  const loadSnippets = useCallback(async () => {
     if (!user) {
       setSnippets([])
       setLoading(false)
       return
     }
 
-    fetchSnippets()
-  }, [user, demoMode])
+    // Verificar cache primeiro
+    const cached = cacheUtils.snippets.get(user.id) as CodeSnippet[] | null
+    if (cached) {
+      setSnippets(cached)
+      setLoading(false)
+      return
+    }
 
-  const fetchSnippets = async () => {
     try {
+      setLoading(true)
       setError(null)
-      const { data, error } = await supabase
-        .from("code_snippets")
-        .select("*")
-        .eq("user_id", user?.id)
-        .order("created_at", { ascending: false })
-
+      const { data, error } = await supabase.from("code_snippets").select("*").eq("user_id", user?.id).order("created_at", { ascending: false })
       if (error) throw error
-      setSnippets(data || [])
-    } catch (error: any) {
-      console.error("Erro ao buscar snippets:", error)
-      setError(error.message)
+      
+      const snippetsData = data || []
+      setSnippets(snippetsData)
+      
+      // Salvar no cache
+      cacheUtils.snippets.set(user.id, snippetsData)
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "load")
+      setError(friendlyError)
     } finally {
       setLoading(false)
     }
-  }
+  }, [user])
 
-  const createSnippet = async (snippet: Omit<CodeSnippet, "id" | "user_id" | "created_at" | "updated_at">) => {
-    if (demoMode) {
-      const newSnippet = {
-        id: Date.now().toString(),
-        user_id: "demo",
-        ...snippet,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-      const updated = [...snippets, newSnippet]
-      setSnippets(updated)
-      localStorage.setItem("devflow_snippets", JSON.stringify(updated))
-      return newSnippet
-    }
-
+  const createSnippet = useCallback(async (snippet: Omit<CodeSnippet, "id" | "user_id" | "created_at">) => {
     if (!user) throw new Error("Usuário não autenticado")
-
     try {
-      setError(null)
       const { data, error } = await supabase
         .from("code_snippets")
-        .insert([{ ...snippet, user_id: user.id }])
+        .insert({ 
+          ...snippet, 
+          user_id: user.id 
+        })
         .select()
         .single()
-
+      
       if (error) throw error
-      setSnippets([data, ...snippets])
+      setSnippets(prev => [data, ...prev])
       return data
-    } catch (error: any) {
-      console.error("Erro ao criar snippet:", error)
-      setError(error.message)
-      throw error
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "create")
+      throw new Error(friendlyError)
     }
-  }
+  }, [user])
 
-  const updateSnippet = async (id: string, updates: Partial<CodeSnippet>) => {
-    if (demoMode) {
-      const updated = snippets.map((s) =>
-        s.id === id ? { ...s, ...updates, updated_at: new Date().toISOString() } : s,
-      )
-      setSnippets(updated)
-      localStorage.setItem("devflow_snippets", JSON.stringify(updated))
-      return
-    }
-
+  const updateSnippet = useCallback(async (id: string, updates: Partial<CodeSnippet>) => {
+    if (!user) throw new Error("Usuário não autenticado")
     try {
-      setError(null)
-      const { error } = await supabase
-        .from("code_snippets")
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq("id", id)
-        .eq("user_id", user?.id)
-
+      const { data, error } = await supabase.from("code_snippets").update(updates).eq("id", id).eq("user_id", user?.id).select().single()
       if (error) throw error
-      setSnippets(snippets.map((s) => (s.id === id ? { ...s, ...updates } : s)))
-    } catch (error: any) {
-      console.error("Erro ao atualizar snippet:", error)
-      setError(error.message)
-      throw error
+      setSnippets(prev => prev.map(s => s.id === id ? data : s))
+      return data
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "update")
+      throw new Error(friendlyError)
     }
-  }
+  }, [user])
 
-  const deleteSnippet = async (id: string) => {
-    if (demoMode) {
-      const updated = snippets.filter((s) => s.id !== id)
-      setSnippets(updated)
-      localStorage.setItem("devflow_snippets", JSON.stringify(updated))
-      return
-    }
-
+  const deleteSnippet = useCallback(async (id: string) => {
+    if (!user) throw new Error("Usuário não autenticado")
     try {
-      setError(null)
       const { error } = await supabase.from("code_snippets").delete().eq("id", id).eq("user_id", user?.id)
-
       if (error) throw error
-      setSnippets(snippets.filter((s) => s.id !== id))
-    } catch (error: any) {
-      console.error("Erro ao deletar snippet:", error)
-      setError(error.message)
-      throw error
+      setSnippets(prev => prev.filter(s => s.id !== id))
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "delete")
+      throw new Error(friendlyError)
     }
-  }
+  }, [user])
+
+  useEffect(() => {
+    loadSnippets()
+  }, [loadSnippets])
 
   return {
     snippets,
@@ -408,6 +401,193 @@ export function useCodeSnippets() {
     createSnippet,
     updateSnippet,
     deleteSnippet,
-    refetch: fetchSnippets,
+    refresh: loadSnippets,
+    retryState: {
+      isRetrying: false,
+      attempt: 0,
+      maxAttempts: 3,
+      lastError: null
+    }
   }
 }
+
+// Hook para links
+export function useLinks() {
+  const { user } = useAuth()
+  const [links, setLinks] = useState<Link[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadLinks = useCallback(async () => {
+    if (!user) {
+      setLinks([])
+      setLoading(false)
+      return
+    }
+
+    // Verificar cache primeiro
+    const cached = cacheUtils.links.get(user.id) as Link[] | null
+    if (cached) {
+      setLinks(cached)
+      setLoading(false)
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError(null)
+      const { data, error } = await supabase.from("links").select("*").eq("user_id", user?.id).order("created_at", { ascending: false })
+      if (error) throw error
+      
+      const linksData = data || []
+      setLinks(linksData)
+      
+      // Salvar no cache
+      cacheUtils.links.set(user.id, linksData)
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "load")
+      setError(friendlyError)
+    } finally {
+      setLoading(false)
+    }
+  }, [user])
+
+  const createLink = useCallback(async (link: Omit<Link, "id" | "user_id" | "created_at">) => {
+    if (!user) throw new Error("Usuário não autenticado")
+    try {
+      const { data, error } = await supabase
+        .from("links")
+        .insert({ 
+          ...link, 
+          user_id: user.id 
+        })
+        .select()
+        .single()
+      
+      if (error) throw error
+      setLinks(prev => [data, ...prev])
+      return data
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "create")
+      throw new Error(friendlyError)
+    }
+  }, [user])
+
+  const updateLink = useCallback(async (id: string, updates: Partial<Link>) => {
+    if (!user) throw new Error("Usuário não autenticado")
+    try {
+      const { data, error } = await supabase.from("links").update(updates).eq("id", id).eq("user_id", user?.id).select().single()
+      if (error) throw error
+      setLinks(prev => prev.map(l => l.id === id ? data : l))
+      return data
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "update")
+      throw new Error(friendlyError)
+    }
+  }, [user])
+
+  const deleteLink = useCallback(async (id: string) => {
+    if (!user) throw new Error("Usuário não autenticado")
+    try {
+      const { error } = await supabase.from("links").delete().eq("id", id).eq("user_id", user?.id)
+      if (error) throw error
+      setLinks(prev => prev.filter(l => l.id !== id))
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "delete")
+      throw new Error(friendlyError)
+    }
+  }, [user])
+
+  useEffect(() => {
+    loadLinks()
+  }, [loadLinks])
+
+  return {
+    links,
+    loading,
+    error,
+    createLink,
+    updateLink,
+    deleteLink,
+    refresh: loadLinks,
+    retryState: {
+      isRetrying: false,
+      attempt: 0,
+      maxAttempts: 3,
+      lastError: null
+    }
+  }
+}
+
+// Hook para configurações do usuário
+export function useUserSettings() {
+  const { user } = useAuth()
+  const [settings, setSettings] = useState<UserSettings | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadSettings = useCallback(async () => {
+    if (!user) {
+      setSettings(null)
+      setLoading(false)
+      return
+    }
+
+    // Verificar cache primeiro
+    const cached = cacheUtils.settings.get(user.id) as UserSettings | null
+    if (cached) {
+      setSettings(cached)
+      setLoading(false)
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError(null)
+      const { data, error } = await supabase.from("user_settings").select("*").eq("user_id", user?.id).single()
+      if (error && error.code !== "PGRST116") throw error // PGRST116 = no rows returned
+      
+      const settingsData = data || null
+      setSettings(settingsData)
+      
+      // Salvar no cache
+      cacheUtils.settings.set(user.id, settingsData)
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "load")
+      setError(friendlyError)
+    } finally {
+      setLoading(false)
+    }
+  }, [user])
+
+  const updateSettings = useCallback(async (updates: Partial<UserSettings>) => {
+    if (!user) throw new Error("Usuário não autenticado")
+    try {
+      const { data, error } = await supabase.from("user_settings").upsert([{ ...updates, user_id: user.id }]).select().single()
+      if (error) throw error
+      setSettings(data)
+      return data
+    } catch (err: any) {
+      const friendlyError = createFriendlyErrorMessage(err, "update")
+      throw new Error(friendlyError)
+    }
+  }, [user])
+
+  useEffect(() => {
+    loadSettings()
+  }, [loadSettings])
+
+  return {
+    settings,
+    loading,
+    error,
+    updateSettings,
+    refresh: loadSettings,
+    retryState: {
+      isRetrying: false,
+      attempt: 0,
+      maxAttempts: 3,
+      lastError: null
+    }
+  }
+} 

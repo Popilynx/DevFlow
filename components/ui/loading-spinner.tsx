@@ -1,24 +1,84 @@
 import { cn } from "@/lib/utils"
+import { Loader2 } from "lucide-react"
 
 interface LoadingSpinnerProps {
+  size?: "sm" | "md" | "lg" | "xl"
   className?: string
-  size?: "sm" | "md" | "lg"
+  text?: string
+  variant?: "default" | "primary" | "secondary"
 }
 
 const sizeClasses = {
   sm: "h-4 w-4",
-  md: "h-8 w-8",
-  lg: "h-12 w-12",
+  md: "h-6 w-6",
+  lg: "h-8 w-8",
+  xl: "h-12 w-12",
 }
 
-export function LoadingSpinner({ className, size = "md" }: LoadingSpinnerProps) {
+const variantClasses = {
+  default: "text-muted-foreground",
+  primary: "text-primary",
+  secondary: "text-secondary-foreground",
+}
+
+export function LoadingSpinner({ 
+  size = "md", 
+  className, 
+  text,
+  variant = "default" 
+}: LoadingSpinnerProps) {
   return (
-    <div
-      className={cn("animate-spin rounded-full border-2 border-muted border-t-primary", sizeClasses[size], className)}
-      role="status"
-      aria-label="Carregando..."
-    >
-      <span className="sr-only">Carregando...</span>
+    <div className={cn("flex flex-col items-center justify-center gap-2", className)}>
+      <Loader2 
+        className={cn(
+          "animate-spin",
+          sizeClasses[size],
+          variantClasses[variant]
+        )} 
+      />
+      {text && (
+        <p className={cn("text-sm text-muted-foreground", variantClasses[variant])}>
+          {text}
+        </p>
+      )}
+    </div>
+  )
+}
+
+interface LoadingOverlayProps {
+  isLoading: boolean
+  text?: string
+  children: React.ReactNode
+  className?: string
+}
+
+export function LoadingOverlay({ 
+  isLoading, 
+  text = "Carregando...", 
+  children, 
+  className 
+}: LoadingOverlayProps) {
+  if (!isLoading) return <>{children}</>
+
+  return (
+    <div className={cn("relative", className)}>
+      {children}
+      <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+        <LoadingSpinner text={text} size="lg" />
+      </div>
+    </div>
+  )
+}
+
+interface LoadingPageProps {
+  text?: string
+  className?: string
+}
+
+export function LoadingPage({ text = "Carregando página...", className }: LoadingPageProps) {
+  return (
+    <div className={cn("min-h-screen flex items-center justify-center", className)}>
+      <LoadingSpinner text={text} size="xl" />
     </div>
   )
 }
